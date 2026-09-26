@@ -1,0 +1,38 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Direct ephemeral snaps uploads
+    // Files are uploaded directly from client browser bypassing Vercel serverless functions
+    match /snaps/{userId}/{allPaths=**} {
+      // Owner can upload up to 50MB (images/videos)
+      allow write: if isOwner(userId) && request.resource.size < 50 * 1024 * 1024;
+      // Authenticated users can read the snap media
+      allow read: if isAuthenticated();
+      // Owner or Cloud Functions (admin) can delete
+      allow delete: if isOwner(userId);
+    }
+
+    // 24-hour stories uploads
+    match /stories/{userId}/{allPaths=**} {
+      allow write: if isOwner(userId) && request.resource.size < 50 * 1024 * 1024;
+      allow read: if isAuthenticated();
+      allow delete: if isOwner(userId);
+    }
+
+    // User profile avatars
+    match /avatars/{userId}/{allPaths=**} {
+      allow write: if isOwner(userId) && request.resource.size < 5 * 1024 * 1024;
+      allow read: if true;
+    }
+  }
+}

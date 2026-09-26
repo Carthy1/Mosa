@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      // Ensure users can only modify their own profile
+      allow create, update: if isOwner(userId);
+      allow delete: if isOwner(userId);
+    }
+
+    // Stories Collection (Ephemeral 24-Hour Stories)
+    // Firestore TTL policy is set on the 'expiresAt' field
+    match /stories/{storyId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.authorId == request.auth.uid;
+      allow update: if isAuthenticated() && (
+        request.resource.data.authorId == request.auth.uid ||
+        // Allow adding viewer UID to viewedBy array
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewedBy'])
+      );
+      allow delete: if isAuthenticated() && resource.data.authorId == request.auth.uid;
+    }
+
+    // Chats Collection
+    match /chats/{chatId} {
+      allow read: if isAuthenticated() && (request.auth.uid in resource.data.participants);
+      allow create: if isAuthenticated() && (request.auth.uid in request.resource.data.participants);
+      allow update: if isAuthenticated() && (request.auth.uid in resource.data.participants);
+      
+      // Messages Subcollection (Direct Ephemeral Snaps)
+      match /messages/{messageId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && request.resource.data.senderId == request.auth.uid;
+        // Allow recipient to mark snap as 'viewed'
+        allow update: if isAuthenticated() && 
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewStatus', 'viewedAt']);
+        allow delete: if isAuthenticated() && (
+          resource.data.senderId == request.auth.uid || 
+          resource.data.viewStatus == 'viewed'
+        );
+      }
+    }
+  }
+}
