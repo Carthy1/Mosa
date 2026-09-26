@@ -36,6 +36,8 @@ export function AuthModal({ onClose }: AuthModalProps) {
     switchUser,
   } = useAuth();
 
+  const activeUser = user || DEFAULT_USER;
+
   const [mode, setMode] = useState<'signin' | 'signup' | 'config'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -119,13 +121,13 @@ export function AuthModal({ onClose }: AuthModalProps) {
         <div className="my-4 p-3.5 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img
-              src={user.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80'}
-              alt={user.displayName}
+              src={activeUser.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80'}
+              alt={activeUser.displayName}
               className="w-10 h-10 rounded-full object-cover border border-yellow-400"
             />
             <div>
-              <p className="font-bold text-xs text-white truncate">{user.displayName}</p>
-              <p className="text-[11px] text-white/50">@{user.username}</p>
+              <p className="font-bold text-xs text-white truncate">{activeUser.displayName}</p>
+              <p className="text-[11px] text-white/50">@{activeUser.username}</p>
             </div>
           </div>
 
@@ -319,7 +321,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
                   onClose();
                 }}
                 className={`w-full p-2.5 rounded-xl border flex items-center justify-between text-left cursor-pointer transition-all ${
-                  user.uid === DEFAULT_USER.uid
+                  activeUser?.uid === DEFAULT_USER.uid
                     ? 'bg-yellow-400/20 border-yellow-400/40 text-yellow-300'
                     : 'bg-white/5 border-white/10 hover:bg-white/10 text-white'
                 }`}
@@ -335,7 +337,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
                     <p className="text-[10px] opacity-60">Lead Engineer & QA</p>
                   </div>
                 </div>
-                {user.uid === DEFAULT_USER.uid && <CheckCircle2 className="w-4 h-4 text-yellow-400" />}
+                {activeUser?.uid === DEFAULT_USER.uid && <CheckCircle2 className="w-4 h-4 text-yellow-400" />}
               </button>
 
               {Object.values(DEMO_FRIENDS).map((friend) => (
@@ -346,7 +348,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
                     onClose();
                   }}
                   className={`w-full p-2.5 rounded-xl border flex items-center justify-between text-left cursor-pointer transition-all ${
-                    user.uid === friend.uid
+                    activeUser?.uid === friend.uid
                       ? 'bg-purple-500/20 border-purple-500/40 text-purple-300'
                       : 'bg-white/5 border-white/10 hover:bg-white/10 text-white'
                   }`}

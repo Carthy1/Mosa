@@ -17,7 +17,7 @@ import { mockStore, DEFAULT_USER } from '@/lib/mock/mockStore';
 import { UserProfile } from '@/types';
 
 interface AuthContextType {
-  user: UserProfile;
+  user: UserProfile | null;
   firebaseUser: FirebaseUser | null;
   loading: boolean;
   isFirebaseLive: boolean;
@@ -52,7 +52,7 @@ function formatFirebaseError(err: any): Error {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<UserProfile>(DEFAULT_USER);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const isFirebaseLive = isFirebaseConfigured;
@@ -108,13 +108,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 });
               }
             } else {
-              setUser(mockStore.getCurrentUser());
+              setUser(null);
             }
             setLoading(false);
           },
           (err) => {
             console.warn('[Firebase Auth listener]', err);
-            setUser(mockStore.getCurrentUser());
+            setUser(null);
             setLoading(false);
           }
         );
@@ -122,17 +122,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return () => unsubscribe();
       } catch (err) {
         console.warn('Firebase onAuthStateChanged setup error:', err);
-        setUser(mockStore.getCurrentUser());
+        setUser(null);
         setLoading(false);
       }
     } else {
-      setUser(mockStore.getCurrentUser());
+      setUser(null);
       setLoading(false);
-
-      const unsubscribeMock = mockStore.subscribe(() => {
-        setUser(mockStore.getCurrentUser());
-      });
-      return () => unsubscribeMock();
     }
   }, []);
 
@@ -221,8 +216,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isFirebaseConfigured && auth) {
       await fbSignOut(auth);
     }
-    await fetch('/api/auth/session', { method: 'DELETE' });
-    setUser(DEFAULT_USER);
+    await fetch('/api/auth/session', { method: 'DELETE' }).catch(console.warn);
+    setUser(null);
+    setFirebaseUser(null);
   };
 
   const switchUser = (profile: UserProfile) => {
