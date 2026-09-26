@@ -68,3 +68,16 @@ body {
 .neon-glow {
   animation: neon-pulse 2s infinite ease-in-out;
 }
+
+/* Mobile smooth scrolling & gesture isolation */
+.scroll-touch {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y !important;
+}
+
+.scroll-touch-x {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x !important;
+}

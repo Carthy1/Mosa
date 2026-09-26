@@ -102,12 +102,14 @@ export function SwipeContainer() {
         animate={{ x: `-${activePane * 100}vw` }}
         transition={{ type: 'spring', stiffness: 350, damping: 35 }}
         drag={isChatOpen && activePane === 0 ? false : "x"}
+        dragDirectionLock
         dragConstraints={{ left: 0, right: 0 }}
-        dragElastic={0.25}
+        dragElastic={0.15}
         onDragEnd={handleDragEnd}
+        style={{ touchAction: 'pan-y' }}
       >
         {/* Pane 0: Chat (Left) */}
-        <div className="w-[100vw] h-full flex-shrink-0 relative overflow-hidden">
+        <div className="w-[100vw] h-full flex-shrink-0 relative overflow-hidden" style={{ touchAction: 'pan-y' }}>
           <ChatPane
             currentUser={currentUser}
             friends={friends}
@@ -129,7 +131,7 @@ export function SwipeContainer() {
         </div>
 
         {/* Pane 2: Stories (Right) */}
-        <div className="w-[100vw] h-full flex-shrink-0 relative overflow-hidden">
+        <div className="w-[100vw] h-full flex-shrink-0 relative overflow-hidden" style={{ touchAction: 'pan-y' }}>
           <StoriesPane
             currentUser={currentUser}
             friends={friends}

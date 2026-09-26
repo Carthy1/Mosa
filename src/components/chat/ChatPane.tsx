@@ -250,10 +250,10 @@ export function ChatPane({
   };
 
   return (
-    <div className="w-full h-full bg-[#0d0d12] text-white flex flex-col overflow-hidden select-none">
+    <div className="w-full h-full bg-[#0d0d12] text-white flex flex-col overflow-hidden">
       {/* 1. Main Chat List View */}
       {!activeChat ? (
-        <div className="flex flex-col h-full overflow-y-auto pb-24">
+        <div className="flex flex-col h-full overflow-y-auto pb-24 scroll-touch" style={{ touchAction: 'pan-y' }}>
           {/* Header */}
           <div className="sticky top-0 z-20 bg-[#0d0d12]/80 backdrop-blur-xl border-b border-white/10 px-5 py-4 flex items-center justify-between">
             <div>
@@ -306,7 +306,7 @@ export function ChatPane({
               </button>
             </div>
 
-            <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-1">
+            <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-1 scroll-touch-x" style={{ touchAction: 'pan-x' }}>
               {friends.map((friend) => (
                 <div
                   key={friend.uid}
@@ -500,7 +500,7 @@ export function ChatPane({
           })()}
 
           {/* Messages Feed */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 scroll-touch" style={{ touchAction: 'pan-y' }}>
             {messages.length === 0 ? (
               <div className="text-center py-12 text-white/40">
                 <Sparkles className="w-8 h-8 mx-auto mb-2 text-yellow-400/50" />

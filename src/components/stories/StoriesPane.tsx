@@ -38,7 +38,7 @@ export function StoriesPane({ currentUser, friends, onOpenCamera, onOpenAuth }: 
   const friendsStories = stories.filter((s) => s.authorId !== currentUser.uid);
 
   return (
-    <div className="w-full h-full bg-[#0a0a0f] text-white flex flex-col overflow-y-auto pb-24 select-none">
+    <div className="w-full h-full bg-[#0a0a0f] text-white flex flex-col overflow-y-auto pb-24 scroll-touch" style={{ touchAction: 'pan-y' }}>
       {/* Top Header */}
       <div className="sticky top-0 z-20 bg-[#0a0a0f]/80 backdrop-blur-xl border-b border-white/10 px-5 py-4 flex items-center justify-between">
         <div>

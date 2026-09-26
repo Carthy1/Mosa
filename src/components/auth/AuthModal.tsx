@@ -84,8 +84,8 @@ export function AuthModal({ onClose }: AuthModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 select-none">
-      <div className="bg-[#12121a] border border-white/15 rounded-3xl w-full max-w-md p-6 shadow-2xl flex flex-col text-white animate-in zoom-in-95">
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="bg-[#12121a] border border-white/15 rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto scroll-touch p-6 shadow-2xl flex flex-col text-white animate-in zoom-in-95">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-white/10">
           <div className="flex items-center gap-2.5">

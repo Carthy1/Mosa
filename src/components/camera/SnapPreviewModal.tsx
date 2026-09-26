@@ -305,7 +305,7 @@ export function SnapPreviewModal({
             </div>
 
             {/* Direct Snaps to Friends */}
-            <div className="py-4 flex-1 overflow-y-auto">
+            <div className="py-4 flex-1 overflow-y-auto scroll-touch" style={{ touchAction: 'pan-y' }}>
               <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">
                 Direct Friends (Ephemeral)
               </span>
