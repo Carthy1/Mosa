@@ -12,6 +12,9 @@ import {
   getCanonicalChatId,
   getAllUsers,
   subscribeAllUsers,
+  formatChatTime,
+  formatReceiptTime,
+  toTimestampMillis,
 } from '@/lib/firebase/firestore';
 import { DEMO_FRIENDS, mockStore } from '@/lib/mock/mockStore';
 import { EphemeralViewerModal } from '../snap/EphemeralViewerModal';
@@ -78,14 +81,6 @@ export function ChatPane({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const formatReceiptTime = (timestamp?: number) => {
-    if (!timestamp) return '';
-    const diffSec = Math.floor((Date.now() - timestamp) / 1000);
-    if (diffSec < 60) return 'Just now';
-    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-    return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
 
   const handleDownloadMedia = (mediaUrl: string, type: string) => {
     try {
@@ -158,22 +153,25 @@ export function ChatPane({
     return () => unsubscribe();
   }, [currentUser.uid]);
 
-  // Subscribe to active chat messages & immediately mark incoming as viewed
+  // Subscribe to active chat messages & only mark incoming as viewed if there are unread text messages
   useEffect(() => {
     if (!activeChat) {
       setMessages([]);
       return;
     }
 
-    markChatMessagesAsRead(activeChat.id, currentUser.uid);
-
     const unsubscribe = subscribeMessages(activeChat.id, (msgs) => {
       setMessages(msgs);
-      markChatMessagesAsRead(activeChat.id, currentUser.uid);
+      const hasUnreadIncoming = msgs.some(
+        (m) => m.senderId !== currentUser.uid && m.viewStatus === 'delivered' && m.type === 'text'
+      );
+      if (hasUnreadIncoming) {
+        markChatMessagesAsRead(activeChat.id, currentUser.uid);
+      }
     });
 
     return () => unsubscribe();
-  }, [activeChat, currentUser.uid]);
+  }, [activeChat?.id, currentUser.uid]);
 
   // Auto-scroll chat container to bottom without scrolling window (guarantees header remains visible on iOS)
   useEffect(() => {
@@ -638,7 +636,7 @@ export function ChatPane({
 
                     <div className="flex flex-col items-end gap-1.5 flex-shrink-0 ml-3">
                       <span className="text-[10px] text-white/40">
-                        {lastMsg ? new Date(lastMsg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                        {lastMsg ? formatChatTime(lastMsg.createdAt) : ''}
                       </span>
                       {isUnopenedSnap && (
                         <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 shadow-md shadow-yellow-400/50" />
@@ -912,13 +910,13 @@ export function ChatPane({
                           {/* Timestamp and Read Status Receipt */}
                           <div className="flex items-center justify-end gap-1.5 mt-1 font-mono text-[9px]">
                             <span className="text-white/50">
-                              {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {formatChatTime(msg.createdAt)}
                             </span>
                             {isMe && (
                               msg.viewStatus === 'viewed' ? (
                                 <span
                                   className="inline-flex items-center gap-0.5 text-sky-300 font-semibold"
-                                  title={`Seen ${msg.viewedAt ? new Date(msg.viewedAt).toLocaleTimeString() : ''}`}
+                                  title={`Seen ${msg.viewedAt ? formatChatTime(msg.viewedAt) : ''}`}
                                 >
                                   <CheckCheck className="w-3 h-3 stroke-[2.5]" />
                                   <span>Seen {formatReceiptTime(msg.viewedAt || msg.createdAt)}</span>

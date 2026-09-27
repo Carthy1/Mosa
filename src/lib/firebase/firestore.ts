@@ -23,6 +23,60 @@ import { UserProfile, Story, Chat, Message, SnapViewStatus } from '@/types';
 // USERS COLLECTION
 // ========================
 
+/**
+ * Safely converts any timestamp representation (number, Firestore Timestamp, Date, serialized seconds, object) to milliseconds.
+ */
+export function toTimestampMillis(val: any): number {
+  if (!val) return Date.now();
+  if (typeof val === 'number') {
+    if (val < 10000000000) return val * 1000;
+    return val;
+  }
+  if (typeof val.toMillis === 'function') {
+    return val.toMillis();
+  }
+  if (val && typeof val === 'object') {
+    const sec = Number(val.seconds ?? val._seconds);
+    if (!isNaN(sec) && sec > 0) {
+      const nano = Number(val.nanoseconds ?? val._nanoseconds) || 0;
+      return sec * 1000 + Math.floor(nano / 1000000);
+    }
+  }
+  if (val instanceof Date) {
+    return isNaN(val.getTime()) ? Date.now() : val.getTime();
+  }
+  if (typeof val === 'string') {
+    const num = Number(val);
+    if (!isNaN(num) && num > 100000) {
+      if (num < 10000000000) return num * 1000;
+      return num;
+    }
+    const p = Date.parse(val);
+    if (!isNaN(p)) return p;
+  }
+  return Date.now();
+}
+
+export function formatChatTime(val: any): string {
+  if (!val) return '';
+  const ms = toTimestampMillis(val);
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+export function formatReceiptTime(val: any): string {
+  if (!val) return '';
+  const ms = toTimestampMillis(val);
+  const now = Date.now();
+  const diffSec = Math.floor((now - ms) / 1000);
+  if (diffSec < 0 || diffSec < 60) return 'Just now';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 export async function getUserProfile(uid: string): Promise<UserProfile | null> {
   if (isFirebaseConfigured && db) {
     try {
@@ -520,10 +574,31 @@ export function subscribeChats(
         q,
         (snapshot) => {
           const liveChats: Chat[] = snapshot.docs
-            .map((d) => ({
-              id: d.id,
-              ...(d.data() as Omit<Chat, 'id'>),
-            }))
+            .map((d) => {
+              const data = d.data();
+              const lastMsg = data.lastMessage;
+              return {
+                id: d.id,
+                participants: data.participants || [],
+                participantProfiles: data.participantProfiles || {},
+                updatedAt: toTimestampMillis(data.updatedAt),
+                typing: data.typing || {},
+                lastMessage: lastMsg
+                  ? {
+                      ...lastMsg,
+                      id: lastMsg.id || '',
+                      content: lastMsg.content || '',
+                      type: lastMsg.type || 'text',
+                      senderId: lastMsg.senderId || '',
+                      viewStatus: lastMsg.viewStatus || 'delivered',
+                      createdAt: toTimestampMillis(lastMsg.createdAt),
+                      viewedAt: lastMsg.viewedAt ? toTimestampMillis(lastMsg.viewedAt) : undefined,
+                      isSaved: Boolean(lastMsg.isSaved),
+                      savedByName: lastMsg.savedByName,
+                    }
+                  : undefined,
+              };
+            })
             .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
           callback(liveChats);
@@ -581,11 +656,13 @@ export function subscribeMessages(
                 senderName: data.senderName,
                 type: data.type,
                 content: data.content,
-                viewStatus: data.viewStatus,
+                viewStatus: data.viewStatus || 'delivered',
                 duration: data.duration,
-                createdAt: data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt || Date.now()),
-                viewedAt: data.viewedAt?.toMillis ? data.viewedAt.toMillis() : data.viewedAt,
+                createdAt: toTimestampMillis(data.createdAt),
+                viewedAt: data.viewedAt ? toTimestampMillis(data.viewedAt) : undefined,
                 replyTo: data.replyTo || undefined,
+                isSaved: Boolean(data.isSaved),
+                savedByName: data.savedByName,
               };
             })
             .sort((a, b) => a.createdAt - b.createdAt);
@@ -663,14 +740,17 @@ export async function sendMessage(
         participants: arrayUnion(...participantUids),
         updatedAt: serverTimestamp(),
         lastMessage: {
+          id: docRef.id,
           content: message.type === 'text' ? message.content : `[${message.type.toUpperCase()} SNAP]`,
           type: message.type,
           senderId: message.senderId,
+          senderName: message.senderName || '',
           viewStatus: 'delivered',
           createdAt: now,
+          viewedAt: null,
           isReply: Boolean(message.replyTo),
-          replyToSenderId: message.replyTo?.senderId,
-          replyToSenderName: message.replyTo?.senderName,
+          replyToSenderId: message.replyTo?.senderId || null,
+          replyToSenderName: message.replyTo?.senderName || null,
         },
       };
 
@@ -721,13 +801,24 @@ export async function markSnapViewed(
         viewedAt: serverTimestamp(),
       });
 
-      // Update chat document lastMessage status
+      // Update chat document lastMessage status ONLY IF this snap is the last message
       try {
         const chatRef = doc(db, 'chats', chatId);
-        await updateDoc(chatRef, {
-          'lastMessage.viewStatus': 'viewed',
-          'lastMessage.viewedAt': serverTimestamp(),
-        });
+        const chatSnap = await getDoc(chatRef);
+        if (chatSnap.exists()) {
+          const cData = chatSnap.data();
+          const lastMsg = cData.lastMessage;
+          if (
+            lastMsg &&
+            (lastMsg.id === messageId ||
+              (!lastMsg.id && (lastMsg.content === mediaUrl || (mediaUrl && lastMsg.content?.includes(mediaUrl)))))
+          ) {
+            await updateDoc(chatRef, {
+              'lastMessage.viewStatus': 'viewed',
+              'lastMessage.viewedAt': serverTimestamp(),
+            });
+          }
+        }
       } catch (e) {}
 
       // Only purge if NOT explicitly saved by the user
@@ -756,19 +847,38 @@ export async function markChatMessagesAsRead(
   if (isFirebaseConfigured && db) {
     try {
       const messagesRef = collection(db, 'chats', chatId, 'messages');
-      const q = query(messagesRef, where('viewStatus', '==', 'delivered'));
+      // Only fetch unread messages sent by the other user (senderId != readerUid)
+      const q = query(
+        messagesRef,
+        where('viewStatus', '==', 'delivered'),
+        where('senderId', '!=', readerUid)
+      );
       const snapshot = await getDocs(q);
-      const updates = snapshot.docs
-        .filter((d) => d.data().senderId !== readerUid && d.data().type === 'text')
-        .map((d) => updateDoc(d.ref, { viewStatus: 'viewed', viewedAt: serverTimestamp() }));
+
+      const textDocsToUpdate = snapshot.docs.filter((d) => d.data().type === 'text');
+      if (textDocsToUpdate.length === 0) {
+        // Nothing incoming to mark as read! DO NOT overwrite lastMessage!
+        return;
+      }
+
+      const updates = textDocsToUpdate.map((d) =>
+        updateDoc(d.ref, { viewStatus: 'viewed', viewedAt: serverTimestamp() })
+      );
       await Promise.all(updates);
 
-      // Update chat lastMessage
+      // Only update chat lastMessage if it was sent by someone other than readerUid and is a text message
       const chatRef = doc(db, 'chats', chatId);
-      await updateDoc(chatRef, {
-        'lastMessage.viewStatus': 'viewed',
-        'lastMessage.viewedAt': serverTimestamp(),
-      });
+      const chatSnap = await getDoc(chatRef);
+      if (chatSnap.exists()) {
+        const cData = chatSnap.data();
+        const lastMsg = cData.lastMessage;
+        if (lastMsg && lastMsg.senderId !== readerUid && lastMsg.type === 'text') {
+          await updateDoc(chatRef, {
+            'lastMessage.viewStatus': 'viewed',
+            'lastMessage.viewedAt': serverTimestamp(),
+          });
+        }
+      }
     } catch (e: any) {
       console.warn('Firestore markChatMessagesAsRead notice:', e?.message || e);
     }
@@ -797,10 +907,17 @@ export async function saveSnap(
       });
 
       const chatRef = doc(db, 'chats', chatId);
-      await updateDoc(chatRef, {
-        'lastMessage.isSaved': true,
-        'lastMessage.savedByName': savedByName,
-      });
+      const chatSnap = await getDoc(chatRef);
+      if (chatSnap.exists()) {
+        const cData = chatSnap.data();
+        const lastMsg = cData.lastMessage;
+        if (lastMsg && (lastMsg.id === messageId || (!lastMsg.id && lastMsg.content?.includes(messageId)))) {
+          await updateDoc(chatRef, {
+            'lastMessage.isSaved': true,
+            'lastMessage.savedByName': savedByName,
+          });
+        }
+      }
     } catch (e: any) {
       console.warn('Firestore saveSnap notice:', e?.message || e);
     }

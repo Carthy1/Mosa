@@ -545,11 +545,13 @@ class MockDatabase {
 
     chat.updatedAt = Date.now();
     chat.lastMessage = {
+      id: newMsg.id,
       content: newMsg.type === 'text' ? newMsg.content : `[${newMsg.type.toUpperCase()} SNAP]`,
       type: newMsg.type,
       senderId: newMsg.senderId,
       createdAt: newMsg.createdAt,
       viewStatus: newMsg.viewStatus,
+      viewedAt: undefined,
       isReply: Boolean(newMsg.replyTo),
       replyToSenderId: newMsg.replyTo?.senderId,
       replyToSenderName: newMsg.replyTo?.senderName,
@@ -569,9 +571,9 @@ class MockDatabase {
         msg.viewStatus = 'viewed';
         msg.viewedAt = Date.now();
 
-        // Update last message status if this was the last message
+        // Update last message status ONLY if this snap was the last message
         const chat = this.chats.find((c) => c.id === chatId || c.id.includes(chatId.replace('chat_', '')));
-        if (chat && chat.lastMessage && (chat.lastMessage.createdAt <= msg.createdAt)) {
+        if (chat && chat.lastMessage && (chat.lastMessage.id === messageId || (!chat.lastMessage.id && chat.lastMessage.createdAt === msg.createdAt))) {
           chat.lastMessage.viewStatus = 'viewed';
           chat.lastMessage.viewedAt = msg.viewedAt;
         }
@@ -617,7 +619,7 @@ class MockDatabase {
         msg.savedAt = Date.now();
 
         const chat = this.chats.find((c) => c.id === chatId || c.id.includes(chatId.replace('chat_', '')));
-        if (chat && chat.lastMessage) {
+        if (chat && chat.lastMessage && (chat.lastMessage.id === messageId || (!chat.lastMessage.id && chat.lastMessage.content === msg.content))) {
           chat.lastMessage.isSaved = true;
           chat.lastMessage.savedByName = savedByName;
         }
