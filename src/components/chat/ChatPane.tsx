@@ -11,6 +11,7 @@ import {
   markChatMessagesAsRead,
   getCanonicalChatId,
   getAllUsers,
+  subscribeAllUsers,
 } from '@/lib/firebase/firestore';
 import { DEMO_FRIENDS, mockStore } from '@/lib/mock/mockStore';
 import { EphemeralViewerModal } from '../snap/EphemeralViewerModal';
@@ -64,15 +65,13 @@ export function ChatPane({
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (showAddFriend) {
-      setLoadingUsers(true);
-      getAllUsers()
-        .then((users) => {
-          setCommunityUsers(users.filter((u) => u.uid !== currentUser.uid));
-        })
-        .catch(console.warn)
-        .finally(() => setLoadingUsers(false));
-    }
+    if (!showAddFriend) return;
+    setLoadingUsers(true);
+    const unsubscribe = subscribeAllUsers(currentUser.uid, (users) => {
+      setCommunityUsers(users);
+      setLoadingUsers(false);
+    });
+    return () => unsubscribe();
   }, [showAddFriend, currentUser.uid]);
 
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);

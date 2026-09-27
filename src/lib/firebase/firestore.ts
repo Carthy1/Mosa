@@ -94,6 +94,56 @@ export async function getAllUsers(): Promise<UserProfile[]> {
   return Array.from(usersMap.values());
 }
 
+/**
+ * Real-time listener for community users.
+ * Automatically updates when any user creates an account or logs in anywhere.
+ */
+export function subscribeAllUsers(
+  currentUid: string,
+  callback: (users: UserProfile[]) => void
+): () => void {
+  getAllUsers().then((initial) => {
+    callback(initial.filter((u) => u.uid !== currentUid));
+  });
+
+  const unsubMock = mockStore.subscribe(async () => {
+    const updated = await getAllUsers();
+    callback(updated.filter((u) => u.uid !== currentUid));
+  });
+
+  let unsubFirestore: (() => void) | null = null;
+  if (isFirebaseConfigured && db) {
+    try {
+      unsubFirestore = onSnapshot(
+        collection(db, 'users'),
+        (snapshot) => {
+          snapshot.forEach((d) => {
+            const data = d.data() as UserProfile;
+            if (data && data.uid && data.uid !== currentUid) {
+              mockStore.saveUser(data);
+            }
+          });
+          getAllUsers().then((all) => {
+            callback(all.filter((u) => u.uid !== currentUid));
+          });
+        },
+        (err) => console.warn('Firestore live users notice:', err)
+      );
+    } catch (e) {
+      console.warn('Firestore live users setup error:', e);
+    }
+  }
+
+  return () => {
+    unsubMock();
+    if (unsubFirestore) {
+      try {
+        unsubFirestore();
+      } catch (e) {}
+    }
+  };
+}
+
 export async function addFriend(
   friendUsernameOrUid: string,
   currentUid?: string
