@@ -1033,7 +1033,10 @@ export function ChatPane({
           {/* Chat Input Bar */}
           <form
             onSubmit={handleSendMessage}
-            className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] bg-[#121218] border-t border-white/10 flex items-center gap-2 z-30 flex-shrink-0"
+            className="p-3 bg-[#121218] border-t border-white/10 flex items-center gap-2 z-30 flex-shrink-0 shadow-2xl"
+            style={{
+              paddingBottom: 'max(1.25rem, calc(env(safe-area-inset-bottom, 20px) + 0.75rem))',
+            }}
           >
             {/* Fail-safe Back Button at bottom bar: always visible on mobile, right next to camera */}
             <button

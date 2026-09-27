@@ -72,7 +72,7 @@ export function AuthScreen() {
   };
 
   return (
-    <div className="relative w-screen h-screen overflow-y-auto bg-black text-white flex flex-col items-center justify-center p-4 scroll-touch select-none">
+    <div className="relative w-full h-full min-h-[100dvh] overflow-y-auto bg-black text-white flex flex-col items-center justify-center p-4 scroll-touch select-none">
       {/* Background Ambient Glows */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[350px] sm:w-[500px] h-[350px] sm:h-[500px] bg-gradient-to-tr from-yellow-500/20 via-purple-600/20 to-pink-500/10 rounded-full blur-[100px] pointer-events-none" />
 

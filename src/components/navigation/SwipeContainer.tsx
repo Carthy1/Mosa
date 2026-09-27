@@ -117,7 +117,7 @@ export function SwipeContainer() {
   };
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-black flex flex-col select-none">
+    <div className="relative w-full h-full h-[100dvh] overflow-hidden bg-black flex flex-col select-none">
       {/* 3-Pane Horizontal Carousel Engine */}
       {/* Built strictly with Framer Motion, avoiding Next.js route changes so Camera is never unmounted! */}
       <motion.div
