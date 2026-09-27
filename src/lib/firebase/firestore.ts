@@ -53,13 +53,11 @@ export async function addFriend(
   friendUsernameOrUid: string,
   currentUid?: string
 ): Promise<UserProfile | null> {
-  // Check local mock store first so demo friends (elena_v, alex_chen, sarah_k) always resolve
-  const localFriend = mockStore.addFriend(friendUsernameOrUid);
-  if (localFriend) return localFriend;
+  const cleanInput = friendUsernameOrUid.toLowerCase().trim().replace('@', '');
 
+  // 1. Search live Firestore FIRST for real registered users
   if (isFirebaseConfigured && db) {
     try {
-      const cleanInput = friendUsernameOrUid.toLowerCase().trim().replace('@', '');
       let snap = await getDocs(
         query(collection(db, 'users'), where('username', '==', cleanInput))
       );
@@ -73,8 +71,13 @@ export async function addFriend(
       if (!snap.empty) {
         const friendData = snap.docs[0].data() as UserProfile;
 
+        // Never add oneself
+        if (currentUid && friendData.uid === currentUid) {
+          return null;
+        }
+
         // 1. Add friend to current user's friends list in Firestore
-        if (currentUid && currentUid !== friendData.uid) {
+        if (currentUid) {
           try {
             await updateDoc(doc(db, 'users', currentUid), {
               friends: arrayUnion(friendData.uid),
@@ -88,11 +91,11 @@ export async function addFriend(
           }
         }
 
-        // 2. Add to mockStore so UI updates immediately
+        // 2. Add to mockStore so UI updates immediately without modifying active user identity
         mockStore.addFriendDirect(friendData);
 
         // 3. Initialize canonical chat in Firestore
-        if (currentUid && currentUid !== friendData.uid) {
+        if (currentUid) {
           const canonicalChatId = getCanonicalChatId(currentUid, friendData.uid);
           await setDoc(
             doc(db, 'chats', canonicalChatId),
@@ -119,6 +122,11 @@ export async function addFriend(
       console.warn('Firestore addFriend query error:', e);
     }
   }
+
+  // 2. Fallback to mock store demo bots (elena_v, alex_chen, sarah_k)
+  const localFriend = mockStore.addFriend(cleanInput);
+  if (localFriend) return localFriend;
+
   return null;
 }
 

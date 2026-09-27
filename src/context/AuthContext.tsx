@@ -105,6 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               try {
                 const profile = await getUserProfile(fbUser.uid);
                 if (profile) {
+                  mockStore.setCurrentUser(profile);
                   setUser(profile);
                   persistLocalUser(profile);
                 } else {
@@ -120,6 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     createdAt: Date.now(),
                   };
                   await saveUserProfile(newProfile);
+                  mockStore.setCurrentUser(newProfile);
                   setUser(newProfile);
                   persistLocalUser(newProfile);
                 }
@@ -132,6 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   friends: [],
                   createdAt: Date.now(),
                 };
+                mockStore.setCurrentUser(fallbackProfile);
                 setUser(fallbackProfile);
                 persistLocalUser(fallbackProfile);
               }
@@ -139,6 +142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               // No live firebase user, check local session before booting to login
               const saved = getSavedLocalUser();
               if (saved) {
+                mockStore.setCurrentUser(saved);
                 setUser(saved);
               } else {
                 setUser(null);
@@ -164,7 +168,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       // Offline / standalone mode: restore local session
       const saved = getSavedLocalUser();
-      setUser(saved || null);
+      if (saved) {
+        mockStore.setCurrentUser(saved);
+        setUser(saved);
+      } else {
+        setUser(null);
+      }
       setLoading(false);
     }
   }, []);
@@ -179,6 +188,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token }),
         });
+        const profile = await getUserProfile(cred.user.uid);
+        if (profile) {
+          mockStore.setCurrentUser(profile);
+          setUser(profile);
+          persistLocalUser(profile);
+        }
         return;
       } catch (err: any) {
         throw formatFirebaseError(err);
@@ -205,6 +220,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           createdAt: Date.now(),
         };
         await saveUserProfile(newProfile);
+        mockStore.setCurrentUser(newProfile);
         setUser(newProfile);
         persistLocalUser(newProfile);
 
@@ -240,6 +256,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token }),
         });
+        const profile = await getUserProfile(cred.user.uid);
+        if (profile) {
+          mockStore.setCurrentUser(profile);
+          setUser(profile);
+          persistLocalUser(profile);
+        }
         return;
       } catch (err: any) {
         throw formatFirebaseError(err);
@@ -264,6 +286,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     await fetch('/api/auth/session', { method: 'DELETE' }).catch(console.warn);
     persistLocalUser(null);
+    mockStore.setCurrentUser(DEFAULT_USER);
     if (typeof window !== 'undefined') {
       try {
         sessionStorage.clear();
@@ -275,7 +298,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const switchUser = (profile: UserProfile) => {
     persistLocalUser(profile);
-    mockStore.updateCurrentUser(profile);
+    mockStore.setCurrentUser(profile);
     setUser(profile);
   };
 

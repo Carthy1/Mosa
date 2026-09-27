@@ -178,6 +178,7 @@ class MockDatabase {
     [DEFAULT_USER.uid]: DEFAULT_USER,
     ...DEMO_FRIENDS,
   };
+  private currentUid: string = DEFAULT_USER.uid;
   private stories: Story[] = [...INITIAL_STORIES];
   private chats: Chat[] = [...INITIAL_CHATS];
   private messages: Record<string, Message[]> = { ...INITIAL_MESSAGES };
@@ -208,13 +209,8 @@ class MockDatabase {
         if (savedUser) {
           const parsed = JSON.parse(savedUser);
           if (parsed && parsed.uid) {
-            this.users[DEFAULT_USER.uid] = {
-              ...DEFAULT_USER,
-              ...parsed,
-              friends: (parsed.friends && parsed.friends.length > 0)
-                ? parsed.friends
-                : ['user_elena', 'user_alex', 'user_sarah'],
-            };
+            this.currentUid = parsed.uid;
+            this.users[parsed.uid] = parsed;
           }
         }
       } catch (err) {
@@ -229,7 +225,10 @@ class MockDatabase {
         localStorage.setItem('ephemeral_stories', JSON.stringify(this.stories));
         localStorage.setItem('ephemeral_chats', JSON.stringify(this.chats));
         localStorage.setItem('ephemeral_messages', JSON.stringify(this.messages));
-        localStorage.setItem('ephemeral_current_user', JSON.stringify(this.users[DEFAULT_USER.uid]));
+        const current = this.users[this.currentUid];
+        if (current) {
+          localStorage.setItem('ephemeral_current_user', JSON.stringify(current));
+        }
       } catch (err) {
         console.warn('Failed to persist mock state', err);
       }
@@ -252,16 +251,31 @@ class MockDatabase {
     return () => this.listeners.delete(callback);
   }
 
+  setCurrentUser(profile: UserProfile): void {
+    if (!profile || !profile.uid) return;
+    this.currentUid = profile.uid;
+    this.users[profile.uid] = profile;
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('ephemeral_current_user', JSON.stringify(profile));
+      } catch (e) {}
+    }
+    this.notify();
+  }
+
   getCurrentUser(): UserProfile {
-    return this.users[DEFAULT_USER.uid] || DEFAULT_USER;
+    if (this.currentUid && this.users[this.currentUid]) {
+      return this.users[this.currentUid];
+    }
+    return DEFAULT_USER;
   }
 
   updateCurrentUser(updates: Partial<UserProfile>): UserProfile {
-    const updated = { ...this.getCurrentUser(), ...updates };
-    this.users[DEFAULT_USER.uid] = updated;
-    if (updates.uid) {
-      this.users[updates.uid] = updated;
-    }
+    const current = this.getCurrentUser();
+    const targetUid = updates.uid || this.currentUid || current.uid;
+    const updated = { ...current, ...updates, uid: targetUid };
+    this.currentUid = targetUid;
+    this.users[targetUid] = updated;
     this.save();
     return updated;
   }
@@ -287,9 +301,12 @@ class MockDatabase {
   addFriendDirect(friend: UserProfile): UserProfile {
     this.users[friend.uid] = friend;
     const current = this.getCurrentUser();
-    if (!current.friends.includes(friend.uid) && friend.uid !== current.uid) {
-      current.friends.push(friend.uid);
-      this.updateCurrentUser({ friends: [...current.friends] });
+    if (friend.uid !== current.uid) {
+      const friendsList = current.friends || [];
+      if (!friendsList.includes(friend.uid)) {
+        current.friends = [...friendsList, friend.uid];
+        this.updateCurrentUser({ friends: current.friends });
+      }
     }
 
     const cleanCurrent = current.uid.replace('user_', '').toLowerCase();
@@ -329,22 +346,30 @@ class MockDatabase {
 
   addFriend(usernameOrUid: string): UserProfile | null {
     const normalized = usernameOrUid.toLowerCase().trim().replace('@', '');
-    const found =
-      Object.values(this.users).find(
-        (u) =>
-          u.username.toLowerCase() === normalized ||
-          u.uid.toLowerCase() === normalized ||
-          u.email?.toLowerCase() === normalized
-      ) ||
-      Object.values(DEMO_FRIENDS).find(
-        (u) =>
-          u.username.toLowerCase() === normalized ||
-          u.uid.toLowerCase() === normalized ||
-          u.email?.toLowerCase() === normalized
-      );
+    const current = this.getCurrentUser();
 
-    if (!found) return null;
-    return this.addFriendDirect(found);
+    // Never add or return oneself
+    if (
+      current.username.toLowerCase() === normalized ||
+      current.uid.toLowerCase() === normalized ||
+      current.email?.toLowerCase() === normalized
+    ) {
+      return null;
+    }
+
+    // Only match against seed DEMO_FRIENDS!
+    // Real users must be looked up and added from live Firestore
+    const foundDemo = Object.values(DEMO_FRIENDS).find(
+      (u) =>
+        u.username.toLowerCase() === normalized ||
+        u.uid.toLowerCase() === normalized
+    );
+
+    if (foundDemo) {
+      return this.addFriendDirect(foundDemo);
+    }
+
+    return null;
   }
 
   // Stories (Firestore TTL simulation)

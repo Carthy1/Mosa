@@ -36,7 +36,7 @@ export function SwipeContainer() {
 
   useEffect(() => {
     if (authUser) {
-      mockStore.updateCurrentUser(authUser);
+      mockStore.setCurrentUser(authUser);
       setCurrentUser(authUser);
     }
   }, [authUser]);
@@ -49,7 +49,11 @@ export function SwipeContainer() {
 
     // Listen for mock store updates
     const unsubscribeStore = mockStore.subscribe(() => {
-      setCurrentUser(authUser || mockStore.getCurrentUser());
+      if (authUser) {
+        setCurrentUser(authUser);
+      } else {
+        setCurrentUser(mockStore.getCurrentUser());
+      }
       setFriends(mockStore.getFriends());
     });
 
@@ -78,7 +82,7 @@ export function SwipeContainer() {
       unsubscribeChats();
       unsubscribeStories();
     };
-  }, []);
+  }, [authUser]);
 
   // Handle Drag Gesture end
   const handleDragEnd = (event: any, info: PanInfo) => {
