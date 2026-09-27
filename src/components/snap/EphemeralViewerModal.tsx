@@ -96,7 +96,10 @@ export function EphemeralViewerModal({
     setIsClosing(true);
 
     // Ephemeral Guarantee: Update viewStatus and trigger storage deletion unless saved
-    await markSnapViewed(chatId, message.id, message.content, isSaved);
+    // Only recipient viewing the snap marks it viewed (sender previewing their own sent snap does not)
+    if (!currentUser || currentUser.uid !== message.senderId) {
+      await markSnapViewed(chatId, message.id, message.content, isSaved);
+    }
 
     setTimeout(() => {
       onClose();

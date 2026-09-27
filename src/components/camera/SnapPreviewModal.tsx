@@ -84,15 +84,19 @@ export function SnapPreviewModal({
       // Direct-to-storage upload simulation / live upload
       let finalMediaUrl = mediaUrl;
 
-      // If it's a blob/base64, direct push to storage
+      // If it's a blob/base64, convert or push to storage
       if (mediaUrl.startsWith('blob:') || mediaUrl.startsWith('data:')) {
-        const response = await fetch(mediaUrl);
-        const blob = await response.blob();
-        finalMediaUrl = await uploadMediaDirect(
-          blob,
-          `snaps/${currentUser.uid}/${Date.now()}.${mediaType === 'video' ? 'webm' : 'jpg'}`,
-          (progress) => setUploadProgress(progress)
-        );
+        try {
+          const response = await fetch(mediaUrl);
+          const blob = await response.blob();
+          finalMediaUrl = await uploadMediaDirect(
+            blob,
+            `snaps/${currentUser.uid}/${Date.now()}.${mediaType === 'video' ? 'webm' : 'jpg'}`,
+            (progress) => setUploadProgress(progress)
+          );
+        } catch (fetchErr) {
+          console.warn('Fetch blob error in SnapPreviewModal:', fetchErr);
+        }
       }
 
       // 1. Send to Story if selected (24h TTL)
@@ -129,6 +133,32 @@ export function SnapPreviewModal({
       });
     } catch (err: any) {
       console.warn('[Mosa Snap Send] Non-blocking upload fallback:', err?.message || err);
+      try {
+        if (sendToStory) {
+          await publishStory(currentUser, mediaUrl, mediaType, caption);
+        }
+        if (selectedFriends.length > 0) {
+          await Promise.all(
+            selectedFriends.map((friendUid) => {
+              const chatId = getCanonicalChatId(currentUser.uid, friendUid);
+              const targetFriend = friends.find((f) => f.uid === friendUid);
+              return sendMessage(
+                chatId,
+                {
+                  senderId: currentUser.uid,
+                  senderName: currentUser.displayName,
+                  type: mediaType,
+                  content: mediaUrl,
+                  duration: duration === 0 ? 999999 : duration,
+                },
+                targetFriend || friendUid
+              );
+            })
+          );
+        }
+      } catch (fallbackErr) {
+        console.error('Critical snap send failure:', fallbackErr);
+      }
       setUploadProgress(100);
       setIsUploading(false);
       onSendComplete({

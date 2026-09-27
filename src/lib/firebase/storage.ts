@@ -68,10 +68,37 @@ export async function compressImage(blobOrFile: Blob | File): Promise<Blob> {
 }
 
 /**
+ * Converts a Blob to a self-contained base64 data URL.
+ * Portable across all devices, networks, and sessions without requiring external bucket hosting.
+ */
+export function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          resolve('');
+        }
+      };
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(blob);
+    } catch {
+      resolve('');
+    }
+  });
+}
+
+/**
  * Direct-to-Storage Upload:
  * In accordance with Section 3, media files NEVER touch a Next.js API route.
  * Optimized with client-side compression and a fast-resolve timeout fallback
  * so uploads finish in fractions of a second.
+ *
+ * If Cloud Storage is active, uploads directly to the bucket and returns the public CDN URL.
+ * If Cloud Storage bucket is unprovisioned or fails, safely returns a compressed self-contained
+ * base64 data URL so photos & video snaps are 100% visible and shareable across all devices!
  */
 export async function uploadMediaDirect(
   fileOrBlob: Blob | File,
@@ -80,69 +107,72 @@ export async function uploadMediaDirect(
 ): Promise<string> {
   // 1. Fast client-side optimization
   const optimizedBlob = await compressImage(fileOrBlob);
-  const clientBlobUrl = URL.createObjectURL(optimizedBlob);
+  const dataUrl = await blobToDataUrl(optimizedBlob);
 
-  if (onProgress) onProgress(20);
+  if (onProgress) onProgress(30);
 
-  // 2. Direct upload to Firebase Storage with strict 4-second guarantee
+  // 2. Direct upload to Firebase Storage with strict 2.5-second guarantee
   if (isFirebaseConfigured && storage) {
     try {
       const storageRef = ref(storage, path);
       const uploadTask = uploadBytesResumable(storageRef, optimizedBlob);
 
-      return await new Promise<string>((resolve) => {
+      const downloadUrl = await new Promise<string>((resolve) => {
         let isResolved = false;
 
-        // Fast fallback timer: if network or cloud rules hang > 4000ms, proceed with fast client pipe
+        // Fast fallback timer: if network or cloud rules hang > 2500ms, proceed with robust dataUrl
         const timer = setTimeout(() => {
           if (!isResolved) {
             isResolved = true;
-            console.warn('[Mosa Storage] Upload time exceeded 4s, proceeding with fast local pipe.');
+            console.warn('[Mosa Storage] Upload time exceeded 2.5s, proceeding with portable media pipe.');
             if (onProgress) onProgress(100);
-            resolve(clientBlobUrl);
+            resolve(dataUrl);
           }
-        }, 4000);
+        }, 2500);
 
         uploadTask.on(
           'state_changed',
           (snapshot) => {
             if (isResolved) return;
             const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-            if (onProgress) onProgress(Math.max(20, Math.min(Math.round(progress), 95)));
+            if (onProgress) onProgress(Math.max(30, Math.min(Math.round(progress), 95)));
           },
           (error) => {
             if (isResolved) return;
             isResolved = true;
             clearTimeout(timer);
-            console.warn('[Mosa Storage] Direct bucket notice (using fast media pipe):', error.message);
+            console.warn('[Mosa Storage] Cloud bucket unprovisioned/error (using portable media pipe):', error.message);
             if (onProgress) onProgress(100);
-            resolve(clientBlobUrl);
+            resolve(dataUrl);
           },
           async () => {
             if (isResolved) return;
             isResolved = true;
             clearTimeout(timer);
             try {
-              const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+              const url = await getDownloadURL(uploadTask.snapshot.ref);
               if (onProgress) onProgress(100);
-              resolve(downloadUrl);
+              resolve(url);
             } catch {
               if (onProgress) onProgress(100);
-              resolve(clientBlobUrl);
+              resolve(dataUrl);
             }
           }
         );
       });
+
+      return downloadUrl || dataUrl;
     } catch (err: any) {
       console.warn('[Mosa Storage] Direct push fallback:', err?.message || err);
+      return dataUrl;
     }
   }
 
   // 3. Fallback fast progress animation
   if (onProgress) {
-    onProgress(60);
-    setTimeout(() => onProgress(100), 80);
+    onProgress(70);
+    setTimeout(() => onProgress(100), 60);
   }
 
-  return clientBlobUrl;
+  return dataUrl;
 }

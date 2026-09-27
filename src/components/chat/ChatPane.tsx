@@ -18,6 +18,7 @@ import {
 } from '@/lib/firebase/firestore';
 import { DEMO_FRIENDS, mockStore } from '@/lib/mock/mockStore';
 import { EphemeralViewerModal } from '../snap/EphemeralViewerModal';
+import { SnapPreviewModal } from '../camera/SnapPreviewModal';
 import {
   MessageSquare,
   Search,
@@ -36,6 +37,7 @@ import {
   Bookmark,
   Download,
   Check,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 interface ChatPaneProps {
@@ -66,6 +68,7 @@ export function ChatPane({
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [chatMediaToPreview, setChatMediaToPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
 
   useEffect(() => {
     if (!showAddFriend) return;
@@ -108,6 +111,16 @@ export function ChatPane({
     } catch (e) {
       console.warn('Failed to download media:', e);
     }
+  };
+
+  const handleChatFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const isVideo = file.type.startsWith('video/');
+    const url = URL.createObjectURL(file);
+    setChatMediaToPreview({ url, type: isVideo ? 'video' : 'image' });
+    e.target.value = '';
   };
 
   const handleStartReply = (msg: Message) => {
@@ -227,6 +240,32 @@ export function ChatPane({
       createdAt: Date.now(),
     };
   };
+
+  // Deduplicate chats by recipient UID to ensure clean, singular threads with zero duplicates
+  const displayChats = React.useMemo(() => {
+    const map = new Map<string, Chat>();
+    for (const chat of chats) {
+      const recipient = getRecipient(chat);
+      // Skip if recipient is currentUser (self-chat artifact)
+      if (recipient.uid === currentUser.uid) continue;
+
+      const existing = map.get(recipient.uid);
+      if (!existing) {
+        map.set(recipient.uid, chat);
+      } else {
+        const existingTime = toTimestampMillis(existing.updatedAt || existing.lastMessage?.createdAt);
+        const currentTime = toTimestampMillis(chat.updatedAt || chat.lastMessage?.createdAt);
+        if (currentTime > existingTime) {
+          map.set(recipient.uid, chat);
+        }
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      const timeA = toTimestampMillis(a.updatedAt || a.lastMessage?.createdAt);
+      const timeB = toTimestampMillis(b.updatedAt || b.lastMessage?.createdAt);
+      return timeB - timeA;
+    });
+  }, [chats, currentUser.uid, friends, communityUsers]);
 
   /**
    * Section 5.4: Debounced typing indicator
@@ -394,7 +433,7 @@ export function ChatPane({
     <div className="w-full h-full bg-[#0d0d12] text-white flex flex-col overflow-hidden">
       {/* 1. Main Chat List View */}
       {!activeChat ? (
-        <div className="flex flex-col h-full overflow-y-auto pb-24 scroll-touch" style={{ touchAction: 'pan-y' }}>
+        <div className="flex flex-col h-full overflow-y-auto pb-36 scroll-touch" style={{ touchAction: 'pan-y' }}>
           {/* Header */}
           <div
             className="sticky top-0 z-20 bg-[#0d0d12]/90 backdrop-blur-xl border-b border-white/10 px-5 pb-4 flex items-center justify-between"
@@ -451,65 +490,75 @@ export function ChatPane({
             </div>
 
             <div className="flex items-center gap-3 overflow-x-auto no-scrollbar py-1 scroll-touch-x" style={{ touchAction: 'pan-x' }}>
-              {friends.map((friend) => (
+              {friends.length === 0 ? (
                 <div
-                  key={friend.uid}
-                  onClick={() => {
-                    const canonicalId = getCanonicalChatId(currentUser.uid, friend.uid);
-                    const existing = chats.find(
-                      (c) => c.id === canonicalId || c.participants.includes(friend.uid)
-                    );
-                    if (existing) {
-                      setActiveChat(existing);
-                    } else {
-                      const newChat: Chat = {
-                        id: canonicalId,
-                        participants: [currentUser.uid, friend.uid],
-                        participantProfiles: {
-                          [currentUser.uid]: currentUser,
-                          [friend.uid]: friend,
-                        },
-                        updatedAt: Date.now(),
-                      };
-                      setActiveChat(newChat);
-                    }
-                  }}
-                  className="flex flex-col items-center gap-1.5 cursor-pointer group flex-shrink-0"
+                  onClick={() => setShowAddFriend(true)}
+                  className="flex items-center gap-2 py-2 px-3 rounded-2xl bg-white/5 border border-dashed border-white/15 text-white/50 hover:text-white hover:bg-white/10 cursor-pointer text-xs transition-colors"
                 >
-                  <div className="relative">
-                    <img
-                      src={
-                        friend.photoURL ||
-                        'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80'
-                      }
-                      alt={friend.displayName}
-                      className="w-13 h-13 rounded-full object-cover border-2 border-white/20 group-hover:border-yellow-400 transition-colors"
-                    />
-                    {friend.streak && (
-                      <div className="absolute -bottom-1 -right-1 bg-amber-500 text-black font-extrabold text-[10px] px-1.5 py-0.2 rounded-full border border-black flex items-center gap-0.5">
-                        <Flame className="w-2.5 h-2.5 fill-current" />
-                        {friend.streak}
-                      </div>
-                    )}
-                  </div>
-                  <span className="text-xs text-white/70 group-hover:text-white max-w-[60px] truncate text-center">
-                    {friend.displayName.split(' ')[0]}
-                  </span>
+                  <UserPlus className="w-4 h-4 text-yellow-400" />
+                  <span>Add friends to send quick snaps</span>
                 </div>
-              ))}
+              ) : (
+                friends.map((friend) => (
+                  <div
+                    key={friend.uid}
+                    onClick={() => {
+                      const canonicalId = getCanonicalChatId(currentUser.uid, friend.uid);
+                      const existing = chats.find(
+                        (c) => c.id === canonicalId || c.participants.includes(friend.uid)
+                      );
+                      if (existing) {
+                        setActiveChat(existing);
+                      } else {
+                        const newChat: Chat = {
+                          id: canonicalId,
+                          participants: [currentUser.uid, friend.uid],
+                          participantProfiles: {
+                            [currentUser.uid]: currentUser,
+                            [friend.uid]: friend,
+                          },
+                          updatedAt: Date.now(),
+                        };
+                        setActiveChat(newChat);
+                      }
+                    }}
+                    className="flex flex-col items-center gap-1.5 cursor-pointer group flex-shrink-0"
+                  >
+                    <div className="relative">
+                      <img
+                        src={
+                          friend.photoURL ||
+                          'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80'
+                        }
+                        alt={friend.displayName}
+                        className="w-13 h-13 rounded-full object-cover border-2 border-white/20 group-hover:border-yellow-400 transition-colors"
+                      />
+                      {friend.streak && (
+                        <div className="absolute -bottom-1 -right-1 bg-amber-500 text-black font-extrabold text-[10px] px-1.5 py-0.2 rounded-full border border-black flex items-center gap-0.5">
+                          <Flame className="w-2.5 h-2.5 fill-current" />
+                          {friend.streak}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-xs text-white/70 group-hover:text-white max-w-[60px] truncate text-center">
+                      {friend.displayName.split(' ')[0]}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
           {/* Conversations Thread List */}
-          <div className="divide-y divide-white/5 flex-1">
-            {chats.length === 0 ? (
+          <div className="divide-y divide-white/5 flex-1 pb-16">
+            {displayChats.length === 0 ? (
               <div className="p-8 text-center text-white/40">
                 <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-40" />
                 <p className="font-semibold text-sm">No conversations yet</p>
                 <p className="text-xs mt-1">Add a friend or send a snap to start chatting!</p>
               </div>
             ) : (
-              chats.map((chat) => {
+              displayChats.map((chat) => {
                 const recipient = getRecipient(chat);
                 const lastMsg = chat.lastMessage;
                 const isSentByMe = Boolean(lastMsg && lastMsg.senderId === currentUser.uid);
@@ -986,11 +1035,24 @@ export function ChatPane({
             <button
               type="button"
               onClick={() => onOpenCamera(getRecipient(activeChat))}
-              className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-yellow-400 hover:text-yellow-300 cursor-pointer flex-shrink-0"
+              className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-yellow-400 hover:text-yellow-300 cursor-pointer flex-shrink-0 transition-colors"
               title="Camera Snap"
             >
               <Camera className="w-5 h-5" />
             </button>
+
+            <label
+              className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-purple-400 hover:text-purple-300 cursor-pointer flex-shrink-0 transition-colors"
+              title="Upload photo or video snap"
+            >
+              <ImageIcon className="w-4 h-4" />
+              <input
+                type="file"
+                accept="image/*,video/*"
+                onChange={handleChatFileUpload}
+                className="hidden"
+              />
+            </label>
 
             <input
               ref={inputRef}
@@ -1020,6 +1082,19 @@ export function ChatPane({
           senderName={viewingSnap.senderName}
           currentUser={currentUser}
           onClose={() => setViewingSnap(null)}
+        />
+      )}
+
+      {/* Direct Snap Preview & Editing Modal for Chat Attachments */}
+      {chatMediaToPreview && activeChat && (
+        <SnapPreviewModal
+          mediaUrl={chatMediaToPreview.url}
+          mediaType={chatMediaToPreview.type}
+          currentUser={currentUser}
+          friends={friends}
+          defaultRecipient={getRecipient(activeChat)}
+          onClose={() => setChatMediaToPreview(null)}
+          onSendComplete={() => setChatMediaToPreview(null)}
         />
       )}
 

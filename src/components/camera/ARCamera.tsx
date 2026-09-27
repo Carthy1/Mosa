@@ -471,6 +471,7 @@ export function ARCamera({
     const isVideo = file.type.startsWith('video/');
     const url = URL.createObjectURL(file);
     setCapturedMedia({ url, type: isVideo ? 'video' : 'image' });
+    e.target.value = '';
   };
 
   return (
