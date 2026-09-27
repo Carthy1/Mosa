@@ -255,7 +255,7 @@ export function ChatPane({
       {!activeChat ? (
         <div className="flex flex-col h-full overflow-y-auto pb-24 scroll-touch" style={{ touchAction: 'pan-y' }}>
           {/* Header */}
-          <div className="sticky top-0 z-20 bg-[#0d0d12]/80 backdrop-blur-xl border-b border-white/10 px-5 py-4 flex items-center justify-between">
+          <div className="sticky top-0 z-20 bg-[#0d0d12]/80 backdrop-blur-xl border-b border-white/10 px-5 pt-[max(1rem,env(safe-area-inset-top))] pb-4 flex items-center justify-between">
             <div>
               <h1 className="text-xl font-black tracking-tight flex items-center gap-2">
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-fuchsia-400 to-pink-400">
@@ -456,7 +456,7 @@ export function ChatPane({
             const otherIsTyping = Boolean(activeChat.typing && activeChat.typing[otherUid]);
 
             return (
-              <div className="bg-[#121218] border-b border-white/10 px-4 py-3 flex items-center justify-between">
+              <div className="bg-[#121218] border-b border-white/10 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => setActiveChat(null)}
@@ -670,7 +670,7 @@ export function ChatPane({
           {/* Chat Input Bar */}
           <form
             onSubmit={handleSendMessage}
-            className="p-3 pb-4 bg-[#121218] border-t border-white/10 flex items-center gap-2 z-30 flex-shrink-0"
+            className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] bg-[#121218] border-t border-white/10 flex items-center gap-2 z-30 flex-shrink-0"
           >
             <button
               type="button"

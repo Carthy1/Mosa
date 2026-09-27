@@ -17,6 +17,8 @@ import {
   Eye,
   Glasses,
   Moon,
+  MessageSquare,
+  PlaySquare,
 } from 'lucide-react';
 import { ARFilterId, ARFilterConfig, UserProfile } from '@/types';
 import { ARFilterEngine } from './ARFilterEngine';
@@ -36,11 +38,25 @@ interface ARCameraProps {
   isActive: boolean;
   currentUser: UserProfile;
   friends: UserProfile[];
+  unopenedSnapsCount?: number;
+  unseenStoriesCount?: number;
+  onNavigateToChat?: () => void;
+  onNavigateToStories?: () => void;
   onOpenQAAudit?: () => void;
   onOpenAuth?: () => void;
 }
 
-export function ARCamera({ isActive, currentUser, friends, onOpenQAAudit, onOpenAuth }: ARCameraProps) {
+export function ARCamera({
+  isActive,
+  currentUser,
+  friends,
+  unopenedSnapsCount = 0,
+  unseenStoriesCount = 0,
+  onNavigateToChat,
+  onNavigateToStories,
+  onOpenQAAudit,
+  onOpenAuth,
+}: ARCameraProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -402,7 +418,7 @@ export function ARCamera({ isActive, currentUser, friends, onOpenQAAudit, onOpen
       )}
 
       {/* 4. Top Camera Toolbar */}
-      <div className="absolute top-4 left-4 right-4 z-20 flex items-center justify-between pointer-events-auto">
+      <div className="absolute top-[max(1rem,env(safe-area-inset-top))] left-4 right-4 z-20 flex items-center justify-between pointer-events-auto">
         {/* Profile / Status badge with Mosa branding */}
         <div className="flex items-center gap-2.5">
           <button
@@ -465,23 +481,31 @@ export function ARCamera({ isActive, currentUser, friends, onOpenQAAudit, onOpen
         </div>
       </div>
 
-      {/* 5. Filter Selector Bar (Above Shutter) */}
-      <div className="absolute bottom-28 left-0 right-0 z-20 flex justify-center items-center px-4">
-        <div className="flex items-center gap-3 overflow-x-auto py-2 px-4 no-scrollbar max-w-md bg-black/40 backdrop-blur-md rounded-full border border-white/15 shadow-2xl">
+      {/* 5. Filter Selector Bar (Above Shutter, isolated from horizontal pane drag) */}
+      <div 
+        className="absolute bottom-28 left-0 right-0 z-20 flex justify-center items-center px-4 pointer-events-auto"
+        onPointerDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2.5 overflow-x-auto py-2 px-3.5 no-scrollbar max-w-md bg-black/50 backdrop-blur-xl rounded-full border border-white/20 shadow-2xl">
           {FILTERS.map((filter) => {
             const isSelected = activeFilter === filter.id;
             return (
               <button
                 key={filter.id}
-                onClick={() => setActiveFilter(filter.id)}
-                className={`relative px-3.5 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveFilter(filter.id);
+                }}
+                className={`relative px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-semibold whitespace-nowrap transition-all cursor-pointer active:scale-95 ${
                   isSelected
-                    ? 'bg-white text-black shadow-lg scale-105'
-                    : 'text-white/70 hover:text-white hover:bg-white/10'
+                    ? 'bg-white text-black shadow-lg scale-105 font-bold'
+                    : 'text-white/80 hover:text-white hover:bg-white/10'
                 }`}
               >
                 <span
-                  className="w-2 h-2 rounded-full"
+                  className="w-2 h-2 rounded-full flex-shrink-0"
                   style={{ backgroundColor: filter.color }}
                 />
                 {filter.name}
@@ -491,20 +515,43 @@ export function ARCamera({ isActive, currentUser, friends, onOpenQAAudit, onOpen
         </div>
       </div>
 
-      {/* 6. Shutter Button & Capture Interface */}
-      <div className="absolute bottom-8 left-0 right-0 z-20 flex items-center justify-around px-8">
-        {/* Upload Fallback icon */}
-        <label className="w-12 h-12 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center text-white/80 hover:text-white cursor-pointer active:scale-90 transition-transform">
-          <Upload className="w-5 h-5" />
-          <input
-            type="file"
-            accept="image/*,video/*"
-            onChange={handleFileUpload}
-            className="hidden"
-          />
-        </label>
+      {/* 6. Snapchat-style Camera Bottom Control Bar (Completely unblocked) */}
+      <div className="absolute bottom-[max(1.25rem,env(safe-area-inset-bottom))] left-0 right-0 z-20 flex items-center justify-between px-6 pointer-events-auto max-w-md mx-auto">
+        {/* Left Side: Jump to Chat + Upload */}
+        <div className="flex items-center gap-3">
+          {/* Chat shortcut button */}
+          <button
+            type="button"
+            onClick={onNavigateToChat}
+            className="relative w-12 h-12 rounded-full bg-black/50 backdrop-blur-xl border border-white/20 flex flex-col items-center justify-center text-white/90 hover:text-white active:scale-90 transition-transform cursor-pointer shadow-xl"
+            title="Open Chat"
+            aria-label="Open Chat"
+          >
+            <div className="relative">
+              <MessageSquare className="w-5 h-5 text-purple-400" />
+              {unopenedSnapsCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse border border-black" />
+              )}
+            </div>
+            <span className="text-[9px] font-bold text-purple-300">Chat</span>
+          </button>
 
-        {/* Central Shutter Button (Click = Photo, Hold = Video) */}
+          {/* Upload photo/video button */}
+          <label 
+            className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-xl border border-white/15 flex items-center justify-center text-white/80 hover:text-white cursor-pointer active:scale-90 transition-transform shadow-lg"
+            title="Upload Photo or Video"
+          >
+            <Upload className="w-4 h-4" />
+            <input
+              type="file"
+              accept="image/*,video/*"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+          </label>
+        </div>
+
+        {/* Center: Hero Shutter Button (Click = Photo, Hold = Video) */}
         <div className="relative flex items-center justify-center">
           {/* Recording pulse ring */}
           {isRecording && (
@@ -522,6 +569,8 @@ export function ARCamera({ isActive, currentUser, friends, onOpenQAAudit, onOpen
                 ? 'bg-red-500 border-white scale-110'
                 : 'bg-white/20 hover:bg-white/30 border-white active:scale-95'
             }`}
+            title="Tap for photo, hold for video"
+            aria-label="Take photo or hold for video"
           >
             <div
               className={`rounded-full transition-all duration-200 ${
@@ -531,16 +580,39 @@ export function ARCamera({ isActive, currentUser, friends, onOpenQAAudit, onOpen
           </button>
         </div>
 
-        {/* Filter Quick Switcher */}
-        <button
-          onClick={() => {
-            const nextIdx = (FILTERS.findIndex((f) => f.id === activeFilter) + 1) % FILTERS.length;
-            setActiveFilter(FILTERS[nextIdx].id);
-          }}
-          className="w-12 h-12 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center text-white/80 hover:text-white active:scale-90 transition-transform cursor-pointer"
-        >
-          <Sparkles className="w-5 h-5 text-yellow-400" />
-        </button>
+        {/* Right Side: Quick Filter Switcher + Jump to Stories */}
+        <div className="flex items-center gap-3">
+          {/* Quick cycle filters button */}
+          <button
+            type="button"
+            onClick={() => {
+              const nextIdx = (FILTERS.findIndex((f) => f.id === activeFilter) + 1) % FILTERS.length;
+              setActiveFilter(FILTERS[nextIdx].id);
+            }}
+            className="w-11 h-11 rounded-full bg-black/40 backdrop-blur-xl border border-white/15 flex items-center justify-center text-yellow-400 hover:text-yellow-300 active:scale-90 transition-transform cursor-pointer shadow-lg"
+            title="Next Filter"
+            aria-label="Next Filter"
+          >
+            <Sparkles className="w-4 h-4" />
+          </button>
+
+          {/* Stories shortcut button */}
+          <button
+            type="button"
+            onClick={onNavigateToStories}
+            className="relative w-12 h-12 rounded-full bg-black/50 backdrop-blur-xl border border-white/20 flex flex-col items-center justify-center text-white/90 hover:text-white active:scale-90 transition-transform cursor-pointer shadow-xl"
+            title="Open Stories"
+            aria-label="Open Stories"
+          >
+            <div className="relative">
+              <PlaySquare className="w-5 h-5 text-yellow-400" />
+              {unseenStoriesCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-yellow-400 border border-black" />
+              )}
+            </div>
+            <span className="text-[9px] font-bold text-yellow-300">Stories</span>
+          </button>
+        </div>
       </div>
 
       {/* Recording Duration Indicator */}

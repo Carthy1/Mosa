@@ -125,6 +125,10 @@ export function SwipeContainer() {
             isActive={activePane === 1}
             currentUser={currentUser}
             friends={friends}
+            unopenedSnapsCount={unopenedSnapsCount}
+            unseenStoriesCount={unseenStoriesCount}
+            onNavigateToChat={() => setActivePane(0)}
+            onNavigateToStories={() => setActivePane(2)}
             onOpenQAAudit={() => setShowQAModal(true)}
             onOpenAuth={() => setShowAuthModal(true)}
           />
@@ -141,9 +145,9 @@ export function SwipeContainer() {
         </div>
       </motion.div>
 
-      {/* Floating Modern Bottom Navigation Bar (Hidden when actively chatting to prevent obscuring input) */}
-      {!(activePane === 0 && isChatOpen) && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-auto flex justify-center pb-5 px-6 animate-in fade-in duration-200">
+      {/* Floating Bottom Navigation Bar: visible on Chat (Pane 0) and Stories (Pane 2); hidden on Camera (Pane 1) to give the Shutter button 100% unobstructed room */}
+      {!(activePane === 1 || (activePane === 0 && isChatOpen)) && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-auto flex justify-center pb-[max(1.25rem,env(safe-area-inset-bottom))] px-6 animate-in fade-in duration-200">
           <div className="bg-black/60 backdrop-blur-2xl border border-white/15 px-6 py-2.5 rounded-full flex items-center gap-8 shadow-2xl">
           {/* Chat Tab (Left) */}
           <button
