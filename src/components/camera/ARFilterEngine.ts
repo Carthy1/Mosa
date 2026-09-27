@@ -49,6 +49,7 @@ export class ARFilterEngine {
         canvas: this.canvas,
         alpha: true,
         antialias: true,
+        preserveDrawingBuffer: true,
         powerPreference: 'high-performance',
       });
       this.renderer.setSize(width, height, false);
@@ -315,6 +316,15 @@ export class ARFilterEngine {
    */
   public updateFaceTransform(pos: Partial<FacePosition>) {
     Object.assign(this.faceState, pos);
+  }
+
+  /**
+   * Forces an immediate synchronous render of the scene for instant camera snapshots
+   */
+  public renderOnce() {
+    if (this.renderer && this.scene && this.camera && !this.isDisposed) {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   private animate = () => {

@@ -237,56 +237,73 @@ export function ARCamera({
     }
   };
 
+  // Shutter gesture discrimination: Quick tap (<350ms) = High-Res Photo, Long press (>350ms) = Video Recording
+  const pressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isHoldingToRecordRef = useRef<boolean>(false);
+  const pressStartTimeRef = useRef<number>(0);
+
   /**
    * Snap Photo:
-   * Merges video frame + Three.js canvas into high-resolution snapshot
+   * Merges video frame + Three.js canvas into high-resolution snapshot with synchronous Data URL fallback
    */
   const handleSnapPhoto = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current) return;
 
-    const video = videoRef.current;
-    const threeCanvas = canvasRef.current;
+    try {
+      const video = videoRef.current;
+      const width = video.videoWidth > 0 ? video.videoWidth : (video.clientWidth || 1280);
+      const height = video.videoHeight > 0 ? video.videoHeight : (video.clientHeight || 720);
 
-    const outputCanvas = document.createElement('canvas');
-    outputCanvas.width = video.videoWidth || 1280;
-    outputCanvas.height = video.videoHeight || 720;
-    const ctx = outputCanvas.getContext('2d');
+      const outputCanvas = document.createElement('canvas');
+      outputCanvas.width = width;
+      outputCanvas.height = height;
+      const ctx = outputCanvas.getContext('2d');
 
-    if (!ctx) return;
+      if (!ctx) return;
 
-    // Draw video feed (flip horizontally if front camera for natural selfie view)
-    if (facingMode === 'user') {
-      ctx.translate(outputCanvas.width, 0);
-      ctx.scale(-1, 1);
+      // Draw camera video feed (flip horizontally if front camera for natural selfie view)
+      if (facingMode === 'user') {
+        ctx.translate(width, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(video, 0, 0, width, height);
+
+      // Reset transform before overlaying Three.js WebGL canvas
+      if (facingMode === 'user') {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+      }
+
+      // If WebGL Three.js canvas exists, force synchronous render of current frame and overlay
+      if (canvasRef.current && engineRef.current) {
+        engineRef.current.renderOnce();
+        ctx.drawImage(canvasRef.current, 0, 0, width, height);
+      }
+
+      // Generate instant high-quality JPEG Data URL (synchronous, reliable on all iOS Safari & Chrome versions)
+      const dataUrl = outputCanvas.toDataURL('image/jpeg', 0.92);
+      if (dataUrl && dataUrl.length > 200) {
+        setCapturedMedia({ url: dataUrl, type: 'image' });
+      } else {
+        // Fallback to blob URL if dataURL is unexpectedly empty
+        outputCanvas.toBlob(
+          (blob) => {
+            if (blob && blob.size > 0) {
+              const blobUrl = URL.createObjectURL(blob);
+              setCapturedMedia({ url: blobUrl, type: 'image' });
+            }
+          },
+          'image/jpeg',
+          0.92
+        );
+      }
+    } catch (err) {
+      console.error('Failed to capture photo:', err);
     }
-    ctx.drawImage(video, 0, 0, outputCanvas.width, outputCanvas.height);
-
-    // Reset transform before overlaying Three.js WebGL canvas
-    if (facingMode === 'user') {
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-    }
-
-    // Draw Three.js WebGL overlay
-    ctx.drawImage(threeCanvas, 0, 0, outputCanvas.width, outputCanvas.height);
-
-    outputCanvas.toBlob(
-      (blob) => {
-        if (blob) {
-          const blobUrl = URL.createObjectURL(blob);
-          setCapturedMedia({ url: blobUrl, type: 'image' });
-        } else {
-          const dataUrl = outputCanvas.toDataURL('image/jpeg', 0.82);
-          setCapturedMedia({ url: dataUrl, type: 'image' });
-        }
-      },
-      'image/jpeg',
-      0.82
-    );
   };
 
   /**
    * Video Recording:
-   * Records up to 15 seconds of combined video feed + AR overlay
+   * Records up to 15 seconds of camera feed with cross-browser MIME negotiation
    */
   const startRecording = () => {
     if (!videoRef.current) return;
@@ -296,15 +313,24 @@ export function ARCamera({
       const stream = mediaStreamRef.current;
       if (!stream) return;
 
-      const supportedMime =
-        typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
-          ? 'video/webm;codecs=vp8,opus'
-          : typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('video/webm')
-          ? 'video/webm'
-          : undefined;
+      const getSupportedMimeType = () => {
+        if (typeof MediaRecorder === 'undefined') return undefined;
+        const types = [
+          'video/mp4;codecs=avc1,mp4a.40.2',
+          'video/mp4',
+          'video/webm;codecs=vp9,opus',
+          'video/webm;codecs=vp8,opus',
+          'video/webm',
+        ];
+        for (const t of types) {
+          if (MediaRecorder.isTypeSupported(t)) return t;
+        }
+        return undefined;
+      };
 
-      const mediaRecorder = supportedMime
-        ? new MediaRecorder(stream, { mimeType: supportedMime })
+      const mimeType = getSupportedMimeType();
+      const mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
         : new MediaRecorder(stream);
 
       mediaRecorder.ondataavailable = (event) => {
@@ -314,12 +340,26 @@ export function ARCamera({
       };
 
       mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        if (recordedChunksRef.current.length === 0) {
+          // If no chunks were produced (e.g. premature stop), fall back to photo snap
+          handleSnapPhoto();
+          return;
+        }
+
+        const actualMime = mediaRecorder.mimeType || mimeType || 'video/mp4';
+        const blob = new Blob(recordedChunksRef.current, { type: actualMime });
+
+        if (blob.size < 500) {
+          // Empty or broken recording: snap photo instead of showing blank video
+          handleSnapPhoto();
+          return;
+        }
+
         const videoUrl = URL.createObjectURL(blob);
         setCapturedMedia({ url: videoUrl, type: 'video' });
       };
 
-      mediaRecorder.start(200);
+      mediaRecorder.start(100);
       mediaRecorderRef.current = mediaRecorder;
       setIsRecording(true);
       setRecordingDuration(0);
@@ -342,13 +382,60 @@ export function ARCamera({
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        console.warn('Error stopping MediaRecorder:', e);
+      }
     }
     if (recordingTimerRef.current) {
       clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = null;
     }
     setIsRecording(false);
+  };
+
+  const handleShutterPointerDown = (e: React.SyntheticEvent) => {
+    e.preventDefault();
+    pressStartTimeRef.current = Date.now();
+    isHoldingToRecordRef.current = false;
+
+    // Wait 350ms: if user keeps pressing, start video recording!
+    if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
+    pressTimerRef.current = setTimeout(() => {
+      isHoldingToRecordRef.current = true;
+      startRecording();
+    }, 350);
+  };
+
+  const handleShutterPointerUp = (e: React.SyntheticEvent) => {
+    e.preventDefault();
+    if (pressTimerRef.current) {
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+
+    const elapsed = Date.now() - pressStartTimeRef.current;
+
+    if (isHoldingToRecordRef.current) {
+      // User held and recorded a video
+      isHoldingToRecordRef.current = false;
+      stopRecording();
+    } else if (elapsed < 350) {
+      // User quickly tapped (< 350ms) -> SNAP A HIGH-RES PHOTO
+      handleSnapPhoto();
+    }
+  };
+
+  const handleShutterPointerCancel = () => {
+    if (pressTimerRef.current) {
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+    if (isHoldingToRecordRef.current) {
+      isHoldingToRecordRef.current = false;
+      stopRecording();
+    }
   };
 
   /**
@@ -559,12 +646,11 @@ export function ARCamera({
           )}
 
           <button
-            onClick={handleSnapPhoto}
-            onMouseDown={startRecording}
-            onMouseUp={stopRecording}
-            onTouchStart={startRecording}
-            onTouchEnd={stopRecording}
-            className={`w-20 h-20 rounded-full border-4 transition-all duration-200 cursor-pointer flex items-center justify-center shadow-2xl ${
+            onPointerDown={handleShutterPointerDown}
+            onPointerUp={handleShutterPointerUp}
+            onPointerCancel={handleShutterPointerCancel}
+            onContextMenu={(e) => e.preventDefault()}
+            className={`w-20 h-20 rounded-full border-4 transition-all duration-200 cursor-pointer flex items-center justify-center shadow-2xl touch-none select-none ${
               isRecording
                 ? 'bg-red-500 border-white scale-110'
                 : 'bg-white/20 hover:bg-white/30 border-white active:scale-95'
@@ -573,7 +659,7 @@ export function ARCamera({
             aria-label="Take photo or hold for video"
           >
             <div
-              className={`rounded-full transition-all duration-200 ${
+              className={`rounded-full transition-all duration-200 pointer-events-none ${
                 isRecording ? 'w-8 h-8 bg-white rounded-md' : 'w-14 h-14 bg-white'
               }`}
             />

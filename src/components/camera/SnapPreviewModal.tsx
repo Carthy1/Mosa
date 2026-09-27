@@ -126,6 +126,7 @@ export function SnapPreviewModal({
             autoPlay
             loop
             playsInline
+            muted
             className="w-full h-full object-cover"
           />
         ) : (
@@ -133,6 +134,9 @@ export function SnapPreviewModal({
             src={mediaUrl}
             alt="Snap Preview"
             className="w-full h-full object-cover"
+            onError={(e) => {
+              console.warn('Image preview failed to load:', mediaUrl?.slice(0, 50));
+            }}
           />
         )}
       </div>
@@ -147,7 +151,7 @@ export function SnapPreviewModal({
       )}
 
       {/* Top Controls Overlay */}
-      <div className="relative z-30 w-full flex items-center justify-between p-4 bg-gradient-to-b from-black/70 via-black/20 to-transparent">
+      <div className="relative z-30 w-full flex items-center justify-between p-4 pt-[max(1rem,env(safe-area-inset-top))] bg-gradient-to-b from-black/70 via-black/20 to-transparent">
         <button
           onClick={onClose}
           disabled={isUploading}
@@ -232,7 +236,7 @@ export function SnapPreviewModal({
       )}
 
       {/* Bottom Send Action Bar */}
-      <div className="relative z-30 w-full p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex items-center justify-between">
+      <div className="relative z-30 w-full p-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] bg-gradient-to-t from-black/80 via-black/40 to-transparent flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-xs bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/15 text-white/80 flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
