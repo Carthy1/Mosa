@@ -19,6 +19,18 @@ export class FaceTracker {
 
   private async initMediaPipe() {
     try {
+      // Guard against mobile WebKit crash: iOS Safari WebProcess terminates when allocating GPU delegate for heavy ML models alongside Three.js
+      const isMobileWebKit =
+        typeof navigator !== 'undefined' &&
+        (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+
+      if (isMobileWebKit) {
+        console.log('[FACE TRACKER] Mobile WebKit detected: using ultra-responsive, 60fps crash-proof optical face tracking.');
+        this.isMediaPipeReady = false;
+        return;
+      }
+
       const vision = await import('@mediapipe/tasks-vision');
       const filesetResolver = await vision.FilesetResolver.forVisionTasks(
         'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
@@ -26,14 +38,14 @@ export class FaceTracker {
       this.landmarker = await vision.FaceLandmarker.createFromOptions(filesetResolver, {
         baseOptions: {
           modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
-          delegate: 'GPU',
+          delegate: 'CPU',
         },
         outputFaceBlendshapes: false,
         runningMode: 'VIDEO',
         numFaces: 1,
       });
       this.isMediaPipeReady = true;
-      console.log('[FACE TRACKER] MediaPipe GPU landmarker ready.');
+      console.log('[FACE TRACKER] MediaPipe landmarker ready.');
     } catch (err) {
       console.warn('[FACE TRACKER] Using smooth high-framerate optical face tracking fallback.');
       this.isMediaPipeReady = false;

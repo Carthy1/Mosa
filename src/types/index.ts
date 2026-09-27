@@ -44,9 +44,11 @@ export interface Chat {
   participantProfiles?: Record<string, Partial<UserProfile>>;
   participantDetails?: Record<string, Partial<UserProfile>>;
   lastMessage?: {
+    id?: string;
     content: string;
     type: SnapMediaType;
     senderId: string;
+    senderName?: string;
     createdAt: number;
     viewStatus?: SnapViewStatus;
     viewedAt?: number;

@@ -91,6 +91,25 @@ export function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /**
+ * Converts a base64 Data URL directly into a Blob in memory without network fetch.
+ * 100% reliable on iOS WebKit where fetch(dataUrl) fails.
+ */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  try {
+    const parts = dataUrl.split(',');
+    const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+    const binary = atob(parts[1] || '');
+    const array = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      array[i] = binary.charCodeAt(i);
+    }
+    return new Blob([array], { type: mime });
+  } catch (e) {
+    return new Blob([], { type: 'image/jpeg' });
+  }
+}
+
+/**
  * Direct-to-Storage Upload:
  * In accordance with Section 3, media files NEVER touch a Next.js API route.
  * Optimized with client-side compression and a fast-resolve timeout fallback

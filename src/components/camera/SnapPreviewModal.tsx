@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, Story } from '@/types';
 import { publishStory, sendMessage, getChatIdForFriend, getCanonicalChatId } from '@/lib/firebase/firestore';
-import { uploadMediaDirect } from '@/lib/firebase/storage';
+import { uploadMediaDirect, dataUrlToBlob } from '@/lib/firebase/storage';
 
 interface SnapPreviewModalProps {
   mediaUrl: string;
@@ -84,18 +84,23 @@ export function SnapPreviewModal({
       // Direct-to-storage upload simulation / live upload
       let finalMediaUrl = mediaUrl;
 
-      // If it's a blob/base64, convert or push to storage
+      // If it's a blob/base64, convert safely or push to storage
       if (mediaUrl.startsWith('blob:') || mediaUrl.startsWith('data:')) {
         try {
-          const response = await fetch(mediaUrl);
-          const blob = await response.blob();
+          let blob: Blob;
+          if (mediaUrl.startsWith('data:')) {
+            blob = dataUrlToBlob(mediaUrl);
+          } else {
+            const response = await fetch(mediaUrl);
+            blob = await response.blob();
+          }
           finalMediaUrl = await uploadMediaDirect(
             blob,
             `snaps/${currentUser.uid}/${Date.now()}.${mediaType === 'video' ? 'webm' : 'jpg'}`,
             (progress) => setUploadProgress(progress)
           );
         } catch (fetchErr) {
-          console.warn('Fetch blob error in SnapPreviewModal:', fetchErr);
+          console.warn('Process media error in SnapPreviewModal:', fetchErr);
         }
       }
 

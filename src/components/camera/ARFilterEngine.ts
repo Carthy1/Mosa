@@ -395,9 +395,18 @@ export class ARFilterEngine {
     }
   };
 
-  public renderOnce() {
-    if (this.renderer && this.scene && this.camera && !this.isDisposed) {
-      this.renderer.render(this.scene, this.camera);
+  public pause() {
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+  }
+
+  public resume() {
+    if (this.isDisposed) return;
+    if (this.animationFrameId === null) {
+      this.lastTime = performance.now();
+      this.animate();
     }
   }
 

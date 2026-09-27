@@ -19,6 +19,7 @@ import {
 import { DEMO_FRIENDS, mockStore } from '@/lib/mock/mockStore';
 import { EphemeralViewerModal } from '../snap/EphemeralViewerModal';
 import { SnapPreviewModal } from '../camera/SnapPreviewModal';
+import { compressImage } from '@/lib/firebase/storage';
 import {
   MessageSquare,
   Search,
@@ -113,13 +114,24 @@ export function ChatPane({
     }
   };
 
-  const handleChatFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChatFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const isVideo = file.type.startsWith('video/');
-    const url = URL.createObjectURL(file);
-    setChatMediaToPreview({ url, type: isVideo ? 'video' : 'image' });
+    if (isVideo) {
+      const url = URL.createObjectURL(file);
+      setChatMediaToPreview({ url, type: 'video' });
+    } else {
+      try {
+        const compressed = await compressImage(file);
+        const url = URL.createObjectURL(compressed);
+        setChatMediaToPreview({ url, type: 'image' });
+      } catch {
+        const url = URL.createObjectURL(file);
+        setChatMediaToPreview({ url, type: 'image' });
+      }
+    }
     e.target.value = '';
   };
 
@@ -482,7 +494,7 @@ export function ChatPane({
                 Quick Snap
               </span>
               <button
-                onClick={onOpenCamera}
+                onClick={() => onOpenCamera()}
                 className="text-xs text-yellow-400 font-semibold hover:underline flex items-center gap-1 cursor-pointer"
               >
                 <Camera className="w-3.5 h-3.5" /> Open Camera
@@ -619,7 +631,7 @@ export function ChatPane({
                             <span className="w-2.5 h-2.5 rounded-sm bg-red-500 animate-pulse shadow-sm shadow-red-500" />
                             <span>New {lastMsg.type.toUpperCase()} Snap • Tap to view</span>
                           </p>
-                        ) : isRepliedToMe ? (
+                        ) : isRepliedToMe && lastMsg ? (
                           <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-purple-500/25 text-purple-300 font-bold text-[10px] border border-purple-500/40 flex-shrink-0">
                               <CornerUpLeft className="w-2.5 h-2.5 stroke-[2.5]" />
@@ -788,6 +800,8 @@ export function ChatPane({
               messages.map((msg) => {
                 const isMe = msg.senderId === currentUser.uid;
                 const isMediaSnap = msg.type === 'image' || msg.type === 'video';
+                const chatRecipient = getRecipient(activeChat);
+                const recipientDisplayName = chatRecipient?.displayName || 'Friend';
 
                 return (
                   <div
@@ -822,7 +836,7 @@ export function ChatPane({
                             if (msg.viewStatus !== 'viewed' || msg.isSaved) {
                               setViewingSnap({
                                 message: msg,
-                                senderName: msg.senderName || (isMe ? 'Me' : recipient.displayName),
+                                senderName: msg.senderName || (isMe ? 'Me' : recipientDisplayName),
                               });
                             }
                           }}
@@ -871,10 +885,10 @@ export function ChatPane({
                                 ? `Saved in chat by ${msg.savedByName || (isMe ? 'You' : 'Friend')} • Tap to replay`
                                 : msg.viewStatus === 'viewed'
                                 ? isMe
-                                  ? `Opened by ${recipient.displayName} · ${formatReceiptTime(msg.viewedAt || msg.createdAt)}`
+                                  ? `Opened by ${recipientDisplayName} · ${formatReceiptTime(msg.viewedAt || msg.createdAt)}`
                                   : 'Purged from storage'
                                 : isMe
-                                ? `Waiting for ${recipient.displayName} to open`
+                                ? `Waiting for ${recipientDisplayName} to open`
                                 : 'Tap to view before it vanishes'}
                             </p>
                           </div>

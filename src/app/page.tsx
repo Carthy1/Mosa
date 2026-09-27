@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { AuthScreen } from '@/components/auth/AuthScreen';
+import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 
 const SwipeContainer = dynamic(
   () => import('@/components/navigation/SwipeContainer').then((mod) => mod.SwipeContainer),
@@ -48,8 +49,10 @@ function AppRoot() {
 
 export default function Home() {
   return (
-    <AuthProvider>
-      <AppRoot />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <AppRoot />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

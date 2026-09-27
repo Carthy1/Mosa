@@ -24,6 +24,7 @@ import { ARFilterId, ARFilterConfig, UserProfile } from '@/types';
 import { ARFilterEngine } from './ARFilterEngine';
 import { FaceTracker } from './FaceTracker';
 import { SnapPreviewModal } from './SnapPreviewModal';
+import { compressImage } from '@/lib/firebase/storage';
 
 const FILTERS: ARFilterConfig[] = [
   { id: 'none', name: 'Normal', icon: 'Normal', color: '#888', description: 'Clean camera' },
@@ -137,6 +138,8 @@ export function ARCamera({
       if (canvasRef.current && !engineRef.current) {
         engineRef.current = new ARFilterEngine(canvasRef.current);
         engineRef.current.setFilter(activeFilter);
+      } else if (engineRef.current) {
+        engineRef.current.resume();
       }
 
       // Initialize Face Tracker
@@ -151,12 +154,12 @@ export function ARCamera({
       setPermissionState('denied');
       setErrorMessage(err.name === 'NotAllowedError' ? 'Camera permission was denied.' : err.message);
     }
-  }, [facingMode, activeFilter]);
+  }, [facingMode]);
 
   /**
    * Memory Leak Prevention:
    * Complies with Section 6 QA Directive:
-   * Explicitly stop tracks and dispose Three.js scene when isActive is false.
+   * Explicitly stop tracks and pause Three.js scene when isActive is false.
    */
   const stopCamera = useCallback(() => {
     if (mediaStreamRef.current) {
@@ -173,8 +176,7 @@ export function ARCamera({
     }
 
     if (engineRef.current) {
-      engineRef.current.dispose();
-      engineRef.current = null;
+      engineRef.current.pause();
     }
 
     if (videoRef.current) {
@@ -200,6 +202,16 @@ export function ARCamera({
       stopCamera();
     };
   }, [isActive, startCamera, stopCamera]);
+
+  // Clean up WebGL engine only on unmount
+  useEffect(() => {
+    return () => {
+      if (engineRef.current) {
+        engineRef.current.dispose();
+        engineRef.current = null;
+      }
+    };
+  }, []);
 
   // Video playback resume watchdog: ensures video resumes if paused by preview or audio focus
   useEffect(() => {
@@ -263,8 +275,22 @@ export function ARCamera({
 
     try {
       const video = videoRef.current;
-      const width = video.videoWidth > 0 ? video.videoWidth : (video.clientWidth || 1280);
-      const height = video.videoHeight > 0 ? video.videoHeight : (video.clientHeight || 720);
+      const rawWidth = video.videoWidth > 0 ? video.videoWidth : (video.clientWidth || 1280);
+      const rawHeight = video.videoHeight > 0 ? video.videoHeight : (video.clientHeight || 720);
+
+      // Downscale snapshot to max 1280px to prevent iOS Safari memory exhaustion
+      let width = rawWidth;
+      let height = rawHeight;
+      const maxDim = 1280;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
 
       const outputCanvas = document.createElement('canvas');
       outputCanvas.width = width;
@@ -307,8 +333,8 @@ export function ARCamera({
         }
       }
 
-      // Generate instant high-quality JPEG Data URL (synchronous, reliable on all iOS Safari & Chrome versions)
-      const dataUrl = outputCanvas.toDataURL('image/jpeg', 0.92);
+      // Generate instant lightweight JPEG Data URL (~80-120KB, safe on all mobile browsers)
+      const dataUrl = outputCanvas.toDataURL('image/jpeg', 0.82);
       if (dataUrl && dataUrl.length > 200) {
         setCapturedMedia({ url: dataUrl, type: 'image' });
       } else {
@@ -470,13 +496,24 @@ export function ARCamera({
    * File Upload Fallback:
    * Allows testing snaps and filters even on devices without a webcam
    */
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const isVideo = file.type.startsWith('video/');
-    const url = URL.createObjectURL(file);
-    setCapturedMedia({ url, type: isVideo ? 'video' : 'image' });
+    if (isVideo) {
+      const url = URL.createObjectURL(file);
+      setCapturedMedia({ url, type: 'video' });
+    } else {
+      try {
+        const compressed = await compressImage(file);
+        const url = URL.createObjectURL(compressed);
+        setCapturedMedia({ url, type: 'image' });
+      } catch {
+        const url = URL.createObjectURL(file);
+        setCapturedMedia({ url, type: 'image' });
+      }
+    }
     e.target.value = '';
   };
 
