@@ -144,6 +144,66 @@ export function subscribeAllUsers(
   };
 }
 
+/**
+ * Fetch full UserProfile objects for a list of friend UIDs.
+ */
+export async function getFriendsProfiles(friendUids: string[]): Promise<UserProfile[]> {
+  if (!friendUids || friendUids.length === 0) return [];
+  const results: UserProfile[] = [];
+
+  for (const fUid of friendUids) {
+    if (isFirebaseConfigured && db && !fUid.startsWith('user_')) {
+      try {
+        const uDoc = await getDoc(doc(db, 'users', fUid));
+        if (uDoc.exists()) {
+          results.push(uDoc.data() as UserProfile);
+          continue;
+        }
+      } catch (e) {}
+    }
+    if (DEMO_FRIENDS[fUid]) {
+      results.push(DEMO_FRIENDS[fUid]);
+      continue;
+    }
+    const mockU = mockStore.getUser(fUid);
+    if (mockU) results.push(mockU);
+  }
+
+  return results;
+}
+
+/**
+ * Real-time listener for current user's friends list.
+ */
+export function subscribeUserFriends(
+  uid: string,
+  callback: (friends: UserProfile[]) => void
+): () => void {
+  if (!isFirebaseConfigured || !db || uid.startsWith('user_')) {
+    callback(mockStore.getFriends());
+    return () => {};
+  }
+
+  let unsub: (() => void) | null = null;
+  try {
+    unsub = onSnapshot(doc(db, 'users', uid), async (docSnap) => {
+      if (docSnap.exists()) {
+        const uData = docSnap.data() as UserProfile;
+        const friendsList = await getFriendsProfiles(uData.friends || []);
+        callback(friendsList);
+      } else {
+        callback([]);
+      }
+    });
+  } catch (e) {
+    console.warn('subscribeUserFriends error:', e);
+  }
+
+  return () => {
+    if (unsub) unsub();
+  };
+}
+
 export async function addFriend(
   friendUsernameOrUid: string,
   currentUid?: string
@@ -215,15 +275,7 @@ export async function addFriend(
   }
 
   if (!found) {
-    const cleanHandle = queryText.replace(/[^a-z0-9_]/g, '_');
-    found = {
-      uid: `user_${cleanHandle}`,
-      displayName: friendUsernameOrUid.replace('@', '').trim() || cleanHandle,
-      username: cleanHandle,
-      photoURL: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=250&q=80',
-      friends: currentUid ? [currentUid] : [],
-      createdAt: Date.now(),
-    };
+    return null;
   }
 
   // 4. Bidirectional friend linking and chat initialization in Firestore
@@ -237,13 +289,28 @@ export async function addFriend(
         friends: arrayUnion(currentUid),
       }).catch(console.warn);
 
+      // Fetch my profile for chat metadata
+      let myProfile: any = { uid: currentUid };
+      try {
+        const mySnap = await getDoc(doc(db, 'users', currentUid));
+        if (mySnap.exists()) {
+          const d = mySnap.data();
+          myProfile = {
+            uid: currentUid,
+            displayName: d.displayName || 'User',
+            username: d.username || 'user',
+            photoURL: d.photoURL || null,
+          };
+        }
+      } catch (e) {}
+
       const canonicalChatId = getCanonicalChatId(currentUid, found.uid);
       await setDoc(
         doc(db, 'chats', canonicalChatId),
         {
           participants: [currentUid, found.uid],
           participantProfiles: {
-            [currentUid]: { uid: currentUid },
+            [currentUid]: myProfile,
             [found.uid]: {
               uid: found.uid,
               displayName: found.displayName,
@@ -252,6 +319,10 @@ export async function addFriend(
             },
           },
           updatedAt: serverTimestamp(),
+          typing: {
+            [currentUid]: false,
+            [found.uid]: false,
+          },
         },
         { merge: true }
       ).catch(console.warn);
@@ -423,17 +494,21 @@ export function subscribeChats(
   currentUid: string,
   callback: (chats: Chat[]) => void
 ): () => void {
-  // 1. Immediately provide local/demo chats so screen is never blank
-  callback(mockStore.getChats());
+  const isRealUser = Boolean(isFirebaseConfigured && currentUid && !currentUid.startsWith('user_'));
 
-  // 2. Always subscribe to mockStore for real-time reactivity
-  const unsubMock = mockStore.subscribe(() => {
+  if (!isRealUser) {
+    // 1. Unauthenticated or offline demo mode: use mockStore demo chats
     callback(mockStore.getChats());
-  });
+    const unsubMock = mockStore.subscribe(() => {
+      callback(mockStore.getChats());
+    });
+    return unsubMock;
+  }
 
+  // 2. Real Authenticated User: STRICT PRIVACY.
+  // ONLY return chats where currentUid is explicitly in participants.
+  // Never merge demo chats into a real user's private inbox.
   let unsubFirestore: (() => void) | null = null;
-
-  // 3. Connect to live Firestore if configured
   if (isFirebaseConfigured && db) {
     try {
       const q = query(
@@ -444,39 +519,29 @@ export function subscribeChats(
       unsubFirestore = onSnapshot(
         q,
         (snapshot) => {
-          if (!snapshot.empty) {
-            const liveChats: Chat[] = snapshot.docs
-              .map((d) => ({
-                id: d.id,
-                ...(d.data() as Omit<Chat, 'id'>),
-              }))
-              .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+          const liveChats: Chat[] = snapshot.docs
+            .map((d) => ({
+              id: d.id,
+              ...(d.data() as Omit<Chat, 'id'>),
+            }))
+            .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-            // Merge liveChats with mockStore demo chats so demo friends remain accessible
-            const demoChats = mockStore.getChats();
-            const merged = [...liveChats];
-            for (const d of demoChats) {
-              if (!merged.some((c) => c.id === d.id)) {
-                merged.push(d);
-              }
-            }
-            callback(merged.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
-          } else {
-            callback(mockStore.getChats());
-          }
+          callback(liveChats);
         },
         (err) => {
-          console.warn('Firestore chats subscription notice (using resilient mockStore):', err?.message || err);
-          callback(mockStore.getChats());
+          console.warn('Firestore chats query error:', err?.message || err);
+          callback([]);
         }
       );
     } catch (err) {
       console.warn('Firestore chats query error:', err);
+      callback([]);
     }
+  } else {
+    callback([]);
   }
 
   return () => {
-    unsubMock();
     if (unsubFirestore) {
       try {
         unsubFirestore();
@@ -489,17 +554,16 @@ export function subscribeMessages(
   chatId: string,
   callback: (messages: Message[]) => void
 ): () => void {
-  // 1. Immediately provide local/demo messages
-  callback(mockStore.getMessages(chatId));
-
-  // 2. Always subscribe to mockStore for real-time updates
-  const unsubMock = mockStore.subscribe(() => {
+  // If it's one of the legacy mock seed chats
+  if (chatId === 'chat_elena' || chatId === 'chat_alex' || chatId === 'chat_sarah') {
     callback(mockStore.getMessages(chatId));
-  });
+    const unsubMock = mockStore.subscribe(() => {
+      callback(mockStore.getMessages(chatId));
+    });
+    return unsubMock;
+  }
 
   let unsubFirestore: (() => void) | null = null;
-
-  // 3. Connect to live Firestore messages subcollection
   if (isFirebaseConfigured && db) {
     try {
       const messagesRef = collection(db, 'chats', chatId, 'messages');
@@ -508,40 +572,40 @@ export function subscribeMessages(
       unsubFirestore = onSnapshot(
         q,
         (snapshot) => {
-          if (!snapshot.empty) {
-            const liveMessages: Message[] = snapshot.docs
-              .map((d) => {
-                const data = d.data();
-                return {
-                  id: d.id,
-                  senderId: data.senderId,
-                  senderName: data.senderName,
-                  type: data.type,
-                  content: data.content,
-                  viewStatus: data.viewStatus,
-                  duration: data.duration,
-                  createdAt: data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt || Date.now()),
-                  viewedAt: data.viewedAt?.toMillis ? data.viewedAt.toMillis() : data.viewedAt,
-                  replyTo: data.replyTo || undefined,
-                };
-              })
-              .sort((a, b) => a.createdAt - b.createdAt);
+          const liveMessages: Message[] = snapshot.docs
+            .map((d) => {
+              const data = d.data();
+              return {
+                id: d.id,
+                senderId: data.senderId,
+                senderName: data.senderName,
+                type: data.type,
+                content: data.content,
+                viewStatus: data.viewStatus,
+                duration: data.duration,
+                createdAt: data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt || Date.now()),
+                viewedAt: data.viewedAt?.toMillis ? data.viewedAt.toMillis() : data.viewedAt,
+                replyTo: data.replyTo || undefined,
+              };
+            })
+            .sort((a, b) => a.createdAt - b.createdAt);
 
-            callback(liveMessages);
-          }
+          callback(liveMessages);
         },
         (err) => {
-          console.warn('Firestore messages notice (using resilient mockStore):', err?.message || err);
-          callback(mockStore.getMessages(chatId));
+          console.warn('Firestore messages notice:', err?.message || err);
+          callback([]);
         }
       );
     } catch (err) {
       console.warn('Firestore messages setup error:', err);
+      callback([]);
     }
+  } else {
+    callback([]);
   }
 
   return () => {
-    unsubMock();
     if (unsubFirestore) {
       try {
         unsubFirestore();

@@ -194,42 +194,37 @@ export function ChatPane({
 
   // Get recipient profile for a chat
   const getRecipient = (chat: Chat): UserProfile => {
-    const otherUid = chat.participants.find((id) => id !== currentUser.uid) || chat.participants[0] || 'user_elena';
+    const otherUid = chat.participants.find((id) => id !== currentUser.uid) || chat.participants[0] || 'unknown';
 
     // 1. Check if recipient profile exists on chat document
     const details = chat.participantProfiles?.[otherUid] || chat.participantDetails?.[otherUid];
     if (details) {
       return {
         uid: otherUid,
-        displayName: details.displayName || otherUid,
+        displayName: details.displayName || (details.username ? `@${details.username}` : 'User'),
         username: details.username || otherUid.toLowerCase(),
-        photoURL: details.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
+        photoURL: details.photoURL || undefined,
         friends: [],
         createdAt: Date.now(),
       };
     }
 
     // 2. Check in friends array
-    const friend = friends.find((f) => f.uid === otherUid || otherUid.includes(f.uid));
+    const friend = friends.find((f) => f.uid === otherUid);
     if (friend) return friend;
 
-    // 3. Direct check in DEMO_FRIENDS
-    if (DEMO_FRIENDS[otherUid]) return DEMO_FRIENDS[otherUid];
-    for (const key of Object.keys(DEMO_FRIENDS)) {
-      if (chat.id.includes(key.replace('user_', '')) || otherUid.includes(key.replace('user_', ''))) {
-        return DEMO_FRIENDS[key];
-      }
-    }
+    // 3. Check in communityUsers
+    const commUser = communityUsers.find((u) => u.uid === otherUid);
+    if (commUser) return commUser;
 
-    // 4. Direct check in mockStore
-    const storeUser = mockStore.getUser(otherUid);
-    if (storeUser) return storeUser;
+    // 4. Direct check in DEMO_FRIENDS
+    if (DEMO_FRIENDS[otherUid]) return DEMO_FRIENDS[otherUid];
 
     return {
       uid: otherUid,
       username: otherUid.replace('user_', ''),
-      displayName: otherUid.replace('user_', '').replace('_', ' '),
-      photoURL: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=250&q=80',
+      displayName: otherUid.replace('user_', ''),
+      photoURL: undefined,
       friends: [],
       createdAt: Date.now(),
     };
@@ -544,14 +539,17 @@ export function ChatPane({
                   >
                     <div className="flex items-center gap-3.5 min-w-0">
                       <div className="relative flex-shrink-0">
-                        <img
-                          src={
-                            recipient.photoURL ||
-                            'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80'
-                          }
-                          alt={recipient.displayName}
-                          className="w-12 h-12 rounded-full object-cover"
-                        />
+                        {recipient.photoURL ? (
+                          <img
+                            src={recipient.photoURL}
+                            alt={recipient.displayName}
+                            className="w-12 h-12 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-purple-600 via-pink-600 to-amber-500 flex items-center justify-center font-black text-white text-base shadow flex-shrink-0 border border-white/20">
+                            {(recipient.displayName || recipient.username || 'U').charAt(0).toUpperCase()}
+                          </div>
+                        )}
                         {recipient.streak && (
                           <div className="absolute -bottom-1 -right-1 bg-amber-500 text-black font-extrabold text-[9px] px-1 py-0.1 rounded-full border border-black flex items-center">
                             🔥{recipient.streak}
@@ -682,14 +680,17 @@ export function ChatPane({
                     <span>Chats</span>
                   </button>
 
-                  <img
-                    src={
-                      recipient.photoURL ||
-                      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80'
-                    }
-                    alt={recipient.displayName}
-                    className="w-9 h-9 rounded-full object-cover border border-white/20 flex-shrink-0"
-                  />
+                  {recipient.photoURL ? (
+                    <img
+                      src={recipient.photoURL}
+                      alt={recipient.displayName}
+                      className="w-9 h-9 rounded-full object-cover border border-white/20 flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-purple-600 via-pink-600 to-amber-500 flex items-center justify-center font-bold text-white text-xs shadow flex-shrink-0 border border-white/20">
+                      {(recipient.displayName || recipient.username || 'U').charAt(0).toUpperCase()}
+                    </div>
+                  )}
 
                   <div className="min-w-0">
                     <h3 className="font-bold text-sm text-white truncate">{recipient.displayName}</h3>

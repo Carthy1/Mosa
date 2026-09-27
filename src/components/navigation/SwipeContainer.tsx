@@ -10,7 +10,7 @@ import { AuthModal } from '../auth/AuthModal';
 import { useAuth } from '@/context/AuthContext';
 import { UserProfile, Chat, Story } from '@/types';
 import { mockStore, DEFAULT_USER } from '@/lib/mock/mockStore';
-import { subscribeChats, subscribeStories, saveUserProfile } from '@/lib/firebase/firestore';
+import { subscribeChats, subscribeStories, saveUserProfile, subscribeUserFriends } from '@/lib/firebase/firestore';
 import {
   MessageSquare,
   Camera,
@@ -43,20 +43,24 @@ export function SwipeContainer() {
   }, [authUser]);
 
   useEffect(() => {
-    // Load initial user and friends
+    // Load initial user
     const user = authUser || mockStore.getCurrentUser();
     setCurrentUser(user);
-    setFriends(mockStore.getFriends());
     saveUserProfile(user);
 
-    // Listen for mock store updates
+    // Subscribe to real friends list for this user
+    const unsubscribeFriends = subscribeUserFriends(user.uid, (realFriends) => {
+      setFriends(realFriends);
+    });
+
+    // Listen for mock store updates in offline mode
     const unsubscribeStore = mockStore.subscribe(() => {
       if (authUser) {
         setCurrentUser(authUser);
       } else {
         setCurrentUser(mockStore.getCurrentUser());
+        setFriends(mockStore.getFriends());
       }
-      setFriends(mockStore.getFriends());
     });
 
     // Listen for chats to count unopened snaps
@@ -80,6 +84,7 @@ export function SwipeContainer() {
     });
 
     return () => {
+      unsubscribeFriends();
       unsubscribeStore();
       unsubscribeChats();
       unsubscribeStories();
