@@ -57,6 +57,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const isFirebaseLive = isFirebaseConfigured;
 
+  const getSavedLocalUser = (): UserProfile | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const saved = localStorage.getItem('mosa_auth_user') || localStorage.getItem('ephemeral_current_user');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.uid) return parsed;
+      }
+    } catch (e) {}
+    return null;
+  };
+
+  const persistLocalUser = (profile: UserProfile | null) => {
+    if (typeof window === 'undefined') return;
+    try {
+      if (profile) {
+        localStorage.setItem('mosa_auth_user', JSON.stringify(profile));
+        localStorage.setItem('ephemeral_current_user', JSON.stringify(profile));
+      } else {
+        localStorage.removeItem('mosa_auth_user');
+        localStorage.removeItem('ephemeral_current_user');
+      }
+    } catch (e) {}
+  };
+
   useEffect(() => {
     // If real Firebase is initialized, listen for live auth changes
     if (isFirebaseConfigured && auth) {
@@ -81,6 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 const profile = await getUserProfile(fbUser.uid);
                 if (profile) {
                   setUser(profile);
+                  persistLocalUser(profile);
                 } else {
                   const newProfile: UserProfile = {
                     uid: fbUser.uid,
@@ -95,26 +121,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   };
                   await saveUserProfile(newProfile);
                   setUser(newProfile);
+                  persistLocalUser(newProfile);
                 }
               } catch (e) {
-                // If firestore read fails (e.g. initial rules), fallback to basic user
-                setUser({
+                const fallbackProfile: UserProfile = {
                   uid: fbUser.uid,
                   displayName: fbUser.displayName || 'Firebase User',
                   username: (fbUser.displayName || 'user').toLowerCase().replace(/\s+/g, '_'),
                   email: fbUser.email || '',
                   friends: [],
                   createdAt: Date.now(),
-                });
+                };
+                setUser(fallbackProfile);
+                persistLocalUser(fallbackProfile);
               }
             } else {
-              setUser(null);
+              // No live firebase user, check local session before booting to login
+              const saved = getSavedLocalUser();
+              if (saved) {
+                setUser(saved);
+              } else {
+                setUser(null);
+              }
             }
             setLoading(false);
           },
           (err) => {
             console.warn('[Firebase Auth listener]', err);
-            setUser(null);
+            const saved = getSavedLocalUser();
+            setUser(saved || null);
             setLoading(false);
           }
         );
@@ -122,11 +157,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return () => unsubscribe();
       } catch (err) {
         console.warn('Firebase onAuthStateChanged setup error:', err);
-        setUser(null);
+        const saved = getSavedLocalUser();
+        setUser(saved || null);
         setLoading(false);
       }
     } else {
-      setUser(null);
+      // Offline / standalone mode: restore local session
+      const saved = getSavedLocalUser();
+      setUser(saved || null);
       setLoading(false);
     }
   }, []);
@@ -149,6 +187,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const updated = mockStore.updateCurrentUser({ email });
     setUser(updated);
+    persistLocalUser(updated);
   };
 
   const signUpWithEmail = async (email: string, pass: string, username: string, displayName: string) => {
@@ -167,6 +206,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
         await saveUserProfile(newProfile);
         setUser(newProfile);
+        persistLocalUser(newProfile);
 
         const token = await cred.user.getIdToken();
         await fetch('/api/auth/session', {
@@ -186,6 +226,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       displayName,
     });
     setUser(updated);
+    persistLocalUser(updated);
   };
 
   const signInWithGoogle = async () => {
@@ -210,6 +251,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       email: 'google_user@demo.com',
     });
     setUser(updated);
+    persistLocalUser(updated);
   };
 
   const signOut = async () => {
@@ -221,10 +263,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
     await fetch('/api/auth/session', { method: 'DELETE' }).catch(console.warn);
+    persistLocalUser(null);
     if (typeof window !== 'undefined') {
       try {
-        localStorage.removeItem('ephemeral_current_user');
-        localStorage.removeItem('mosa_auth_user');
         sessionStorage.clear();
       } catch (e) {}
     }
@@ -233,6 +274,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const switchUser = (profile: UserProfile) => {
+    persistLocalUser(profile);
     mockStore.updateCurrentUser(profile);
     setUser(profile);
   };

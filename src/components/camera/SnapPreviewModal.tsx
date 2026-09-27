@@ -15,7 +15,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { UserProfile, Story } from '@/types';
-import { publishStory, sendMessage } from '@/lib/firebase/firestore';
+import { publishStory, sendMessage, getChatIdForFriend } from '@/lib/firebase/firestore';
 import { uploadMediaDirect } from '@/lib/firebase/storage';
 
 interface SnapPreviewModalProps {
@@ -23,8 +23,9 @@ interface SnapPreviewModalProps {
   mediaType: 'image' | 'video';
   currentUser: UserProfile;
   friends: UserProfile[];
+  defaultRecipient?: UserProfile | null;
   onClose: () => void;
-  onSendComplete: () => void;
+  onSendComplete: (info?: { target: 'story' | 'chat'; friendUid?: string }) => void;
 }
 
 export function SnapPreviewModal({
@@ -32,6 +33,7 @@ export function SnapPreviewModal({
   mediaType,
   currentUser,
   friends,
+  defaultRecipient,
   onClose,
   onSendComplete,
 }: SnapPreviewModalProps) {
@@ -39,9 +41,11 @@ export function SnapPreviewModal({
   const [showCaptionInput, setShowCaptionInput] = useState(false);
   const [duration, setDuration] = useState<number>(10);
   const [showTimerPicker, setShowTimerPicker] = useState(false);
-  const [showSendDrawer, setShowSendDrawer] = useState(false);
-  const [sendToStory, setSendToStory] = useState(true);
-  const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
+  const [showSendDrawer, setShowSendDrawer] = useState(Boolean(defaultRecipient));
+  const [sendToStory, setSendToStory] = useState(!defaultRecipient);
+  const [selectedFriends, setSelectedFriends] = useState<string[]>(
+    defaultRecipient ? [defaultRecipient.uid] : []
+  );
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
@@ -86,7 +90,7 @@ export function SnapPreviewModal({
       if (selectedFriends.length > 0) {
         await Promise.all(
           selectedFriends.map((friendUid) => {
-            const chatId = `chat_${friendUid}`;
+            const chatId = getChatIdForFriend(friendUid);
             return sendMessage(chatId, {
               senderId: currentUser.uid,
               senderName: currentUser.displayName,
@@ -100,20 +104,44 @@ export function SnapPreviewModal({
 
       setUploadProgress(100);
       setIsUploading(false);
-      onSendComplete();
+      onSendComplete({
+        target: sendToStory ? 'story' : 'chat',
+        friendUid: selectedFriends[0],
+      });
     } catch (err: any) {
       console.warn('[Mosa Snap Send] Non-blocking upload fallback:', err?.message || err);
       setUploadProgress(100);
       setIsUploading(false);
-      onSendComplete();
+      onSendComplete({
+        target: sendToStory ? 'story' : 'chat',
+        friendUid: selectedFriends[0],
+      });
     }
   };
 
   const handleDownload = () => {
-    const a = document.createElement('a');
-    a.href = mediaUrl;
-    a.download = `snap_${Date.now()}.${mediaType === 'video' ? 'webm' : 'jpg'}`;
-    a.click();
+    try {
+      fetch(mediaUrl)
+        .then((res) => res.blob())
+        .then((blob) => {
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = `snap_${Date.now()}.${mediaType === 'video' ? 'webm' : 'jpg'}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        })
+        .catch(() => {
+          const a = document.createElement('a');
+          a.href = mediaUrl;
+          a.download = `snap_${Date.now()}.${mediaType === 'video' ? 'webm' : 'jpg'}`;
+          a.click();
+        });
+    } catch (e) {
+      console.warn('Download error:', e);
+    }
   };
 
   return (

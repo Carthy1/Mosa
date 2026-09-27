@@ -38,6 +38,7 @@ interface ARCameraProps {
   isActive: boolean;
   currentUser: UserProfile;
   friends: UserProfile[];
+  defaultRecipient?: UserProfile | null;
   unopenedSnapsCount?: number;
   unseenStoriesCount?: number;
   onNavigateToChat?: () => void;
@@ -50,6 +51,7 @@ export function ARCamera({
   isActive,
   currentUser,
   friends,
+  defaultRecipient,
   unopenedSnapsCount = 0,
   unseenStoriesCount = 0,
   onNavigateToChat,
@@ -77,6 +79,7 @@ export function ARCamera({
 
   // Preview state
   const [capturedMedia, setCapturedMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const [sendToast, setSendToast] = useState<{ message: string; actionText?: string; onAction?: () => void } | null>(null);
 
   // Engine references
   const engineRef = useRef<ARFilterEngine | null>(null);
@@ -198,6 +201,15 @@ export function ARCamera({
     };
   }, [isActive, startCamera, stopCamera]);
 
+  // Video playback resume watchdog: ensures video resumes if paused by preview or audio focus
+  useEffect(() => {
+    if (!capturedMedia && isActive && videoRef.current && mediaStreamRef.current) {
+      if (videoRef.current.paused) {
+        videoRef.current.play().catch(() => {});
+      }
+    }
+  }, [capturedMedia, isActive]);
+
   // Handle active filter change
   useEffect(() => {
     if (engineRef.current) {
@@ -261,16 +273,26 @@ export function ARCamera({
 
       if (!ctx) return;
 
-      // Draw camera video feed (flip horizontally if front camera for natural selfie view)
-      if (facingMode === 'user') {
-        ctx.translate(width, 0);
-        ctx.scale(-1, 1);
-      }
-      ctx.drawImage(video, 0, 0, width, height);
+      // Draw camera video feed if video is playing and ready
+      if (video.readyState >= 2 && video.videoWidth > 0) {
+        if (facingMode === 'user') {
+          ctx.translate(width, 0);
+          ctx.scale(-1, 1);
+        }
+        ctx.drawImage(video, 0, 0, width, height);
 
-      // Reset transform before overlaying Three.js WebGL canvas
-      if (facingMode === 'user') {
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        // Reset transform before overlaying Three.js WebGL canvas
+        if (facingMode === 'user') {
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+        }
+      } else {
+        // Fallback: draw stylish AR gradient backdrop if camera is initializing or in demo mode
+        const grad = ctx.createLinearGradient(0, 0, width, height);
+        grad.addColorStop(0, '#1a0b2e');
+        grad.addColorStop(0.5, '#2e124d');
+        grad.addColorStop(1, '#0a0a14');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, width, height);
       }
 
       // If WebGL Three.js canvas exists, force synchronous render of current frame and overlay
@@ -709,6 +731,24 @@ export function ARCamera({
         </div>
       )}
 
+      {/* Floating Send Feedback Toast */}
+      {sendToast && (
+        <div className="absolute top-20 z-30 bg-black/85 backdrop-blur-xl border border-yellow-400/40 text-white px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-3 animate-in zoom-in-95 duration-200">
+          <span className="text-xs font-bold">{sendToast.message}</span>
+          {sendToast.actionText && (
+            <button
+              onClick={() => {
+                sendToast.onAction?.();
+                setSendToast(null);
+              }}
+              className="text-xs text-yellow-400 hover:underline font-extrabold cursor-pointer"
+            >
+              {sendToast.actionText} →
+            </button>
+          )}
+        </div>
+      )}
+
       {/* 7. Snap Preview Modal (when photo/video is taken) */}
       {capturedMedia && (
         <SnapPreviewModal
@@ -716,8 +756,36 @@ export function ARCamera({
           mediaType={capturedMedia.type}
           currentUser={currentUser}
           friends={friends}
-          onClose={() => setCapturedMedia(null)}
-          onSendComplete={() => setCapturedMedia(null)}
+          defaultRecipient={defaultRecipient}
+          onClose={() => {
+            setCapturedMedia(null);
+            if (videoRef.current && mediaStreamRef.current) {
+              videoRef.current.play().catch(() => {});
+            }
+          }}
+          onSendComplete={(info) => {
+            setCapturedMedia(null);
+            if (videoRef.current && mediaStreamRef.current) {
+              videoRef.current.play().catch(() => {});
+            }
+            if (info?.target === 'chat') {
+              const targetFriend = friends.find((f) => f.uid === info.friendUid) || defaultRecipient;
+              const name = targetFriend?.displayName || 'Friend';
+              setSendToast({
+                message: `🔥 Snap delivered to ${name}!`,
+                actionText: 'View in Chat',
+                onAction: onNavigateToChat,
+              });
+              setTimeout(() => setSendToast(null), 4500);
+            } else if (info?.target === 'story') {
+              setSendToast({
+                message: '✨ Posted to My Story!',
+                actionText: 'View Stories',
+                onAction: onNavigateToStories,
+              });
+              setTimeout(() => setSendToast(null), 4500);
+            }
+          }}
         />
       )}
     </div>

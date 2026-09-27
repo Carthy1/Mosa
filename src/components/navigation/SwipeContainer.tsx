@@ -25,6 +25,7 @@ export function SwipeContainer() {
   const { user: authUser } = useAuth();
   // 0: Chat (Left), 1: Camera (Center), 2: Stories (Right)
   const [activePane, setActivePane] = useState<number>(1);
+  const [cameraTargetUser, setCameraTargetUser] = useState<UserProfile | null>(null);
   const [currentUser, setCurrentUser] = useState<UserProfile>(authUser || DEFAULT_USER);
   const [friends, setFriends] = useState<UserProfile[]>([]);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -85,10 +86,10 @@ export function SwipeContainer() {
     const velocityThreshold = 400;
 
     if (info.offset.x < -swipeThreshold || info.velocity.x < -velocityThreshold) {
-      // Swiped Left -> Move Right (e.g. Chat -> Camera or Camera -> Stories)
+      // Swiped Left -> Move Right (e.g. Camera -> Stories)
       setActivePane((prev) => Math.min(prev + 1, 2));
     } else if (info.offset.x > swipeThreshold || info.velocity.x > velocityThreshold) {
-      // Swiped Right -> Move Left (e.g. Stories -> Camera or Camera -> Chat)
+      // Swiped Right -> Move Left (e.g. Camera -> Chat)
       setActivePane((prev) => Math.max(prev - 1, 0));
     }
   };
@@ -101,7 +102,7 @@ export function SwipeContainer() {
         className="flex w-[300vw] h-full"
         animate={{ x: `-${activePane * 100}vw` }}
         transition={{ type: 'spring', stiffness: 350, damping: 35 }}
-        drag={isChatOpen && activePane === 0 ? false : "x"}
+        drag={activePane === 1 ? "x" : false}
         dragDirectionLock
         dragConstraints={{ left: 0, right: 0 }}
         dragElastic={0.15}
@@ -113,7 +114,10 @@ export function SwipeContainer() {
           <ChatPane
             currentUser={currentUser}
             friends={friends}
-            onOpenCamera={() => setActivePane(1)}
+            onOpenCamera={(targetUser) => {
+              setCameraTargetUser(targetUser || null);
+              setActivePane(1);
+            }}
             onOpenAuth={() => setShowAuthModal(true)}
             onActiveChatChange={(isOpen) => setIsChatOpen(isOpen)}
           />
@@ -125,6 +129,7 @@ export function SwipeContainer() {
             isActive={activePane === 1}
             currentUser={currentUser}
             friends={friends}
+            defaultRecipient={cameraTargetUser}
             unopenedSnapsCount={unopenedSnapsCount}
             unseenStoriesCount={unseenStoriesCount}
             onNavigateToChat={() => setActivePane(0)}
@@ -139,7 +144,10 @@ export function SwipeContainer() {
           <StoriesPane
             currentUser={currentUser}
             friends={friends}
-            onOpenCamera={() => setActivePane(1)}
+            onOpenCamera={() => {
+              setCameraTargetUser(null);
+              setActivePane(1);
+            }}
             onOpenAuth={() => setShowAuthModal(true)}
           />
         </div>

@@ -50,14 +50,26 @@ export function EphemeralViewerModal({
     setJustSavedNotification(true);
     setTimeout(() => setJustSavedNotification(false), 2500);
 
-    // 1. Download directly to device
+    // 1. Download directly to device (using blob fetch to support cross-origin media)
     try {
-      const a = document.createElement('a');
-      a.href = message.content;
-      a.download = `mosa_snap_${Date.now()}.${message.type === 'video' ? 'webm' : 'jpg'}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      fetch(message.content)
+        .then((res) => res.blob())
+        .then((blob) => {
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = `mosa_snap_${Date.now()}.${message.type === 'video' ? 'webm' : 'jpg'}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        })
+        .catch(() => {
+          const a = document.createElement('a');
+          a.href = message.content;
+          a.download = `mosa_snap_${Date.now()}.${message.type === 'video' ? 'webm' : 'jpg'}`;
+          a.click();
+        });
     } catch (e) {
       console.warn('Failed to download snap:', e);
     }

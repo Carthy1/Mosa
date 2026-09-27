@@ -361,7 +361,7 @@ export function AuthModal({ onClose }: AuthModalProps) {
                       <p className="text-[10px] opacity-60">@{friend.username}</p>
                     </div>
                   </div>
-                  {user.uid === friend.uid && <CheckCircle2 className="w-4 h-4 text-purple-400" />}
+                  {activeUser?.uid === friend.uid && <CheckCircle2 className="w-4 h-4 text-purple-400" />}
                 </button>
               ))}
             </div>

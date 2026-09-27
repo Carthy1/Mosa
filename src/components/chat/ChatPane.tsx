@@ -35,7 +35,7 @@ import {
 interface ChatPaneProps {
   currentUser: UserProfile;
   friends: UserProfile[];
-  onOpenCamera: () => void;
+  onOpenCamera: (targetUser?: UserProfile) => void;
   onOpenAuth?: () => void;
   onActiveChatChange?: (isActive: boolean) => void;
 }
@@ -73,12 +73,27 @@ export function ChatPane({
 
   const handleDownloadMedia = (mediaUrl: string, type: string) => {
     try {
-      const a = document.createElement('a');
-      a.href = mediaUrl;
-      a.download = `mosa_snap_${Date.now()}.${type === 'video' ? 'webm' : 'jpg'}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      const filename = `mosa_snap_${Date.now()}.${type === 'video' ? 'webm' : 'jpg'}`;
+      fetch(mediaUrl)
+        .then((res) => res.blob())
+        .then((blob) => {
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        })
+        .catch(() => {
+          const a = document.createElement('a');
+          a.href = mediaUrl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        });
     } catch (e) {
       console.warn('Failed to download media:', e);
     }
@@ -579,7 +594,7 @@ export function ChatPane({
 
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={onOpenCamera}
+                    onClick={() => onOpenCamera(recipient)}
                     className="w-9 h-9 rounded-full bg-yellow-400/20 text-yellow-300 hover:bg-yellow-400/30 flex items-center justify-center cursor-pointer transition-colors"
                     title="Send AR Snap"
                   >
@@ -635,7 +650,7 @@ export function ChatPane({
                             if (msg.viewStatus !== 'viewed' || msg.isSaved) {
                               setViewingSnap({
                                 message: msg,
-                                senderName: msg.senderName || (isMe ? 'Me' : 'Friend'),
+                                senderName: msg.senderName || (isMe ? 'Me' : recipient.displayName),
                               });
                             }
                           }}
@@ -836,7 +851,7 @@ export function ChatPane({
           >
             <button
               type="button"
-              onClick={onOpenCamera}
+              onClick={() => onOpenCamera(getRecipient(activeChat))}
               className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-yellow-400 hover:text-yellow-300 cursor-pointer flex-shrink-0"
               title="Camera Snap"
             >

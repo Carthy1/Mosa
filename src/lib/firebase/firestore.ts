@@ -206,6 +206,11 @@ export async function deleteStory(storyId: string): Promise<void> {
 // CHATS & MESSAGES SUBCOLLECTION
 // ========================
 
+export function getChatIdForFriend(friendUid: string): string {
+  const clean = friendUid.replace('user_', '').toLowerCase();
+  return `chat_${clean}`;
+}
+
 export function subscribeChats(
   currentUid: string,
   callback: (chats: Chat[]) => void
