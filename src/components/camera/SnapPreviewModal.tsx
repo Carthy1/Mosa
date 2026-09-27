@@ -15,7 +15,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { UserProfile, Story } from '@/types';
-import { publishStory, sendMessage, getChatIdForFriend } from '@/lib/firebase/firestore';
+import { publishStory, sendMessage, getChatIdForFriend, getCanonicalChatId } from '@/lib/firebase/firestore';
 import { uploadMediaDirect } from '@/lib/firebase/storage';
 
 interface SnapPreviewModalProps {
@@ -90,14 +90,19 @@ export function SnapPreviewModal({
       if (selectedFriends.length > 0) {
         await Promise.all(
           selectedFriends.map((friendUid) => {
-            const chatId = getChatIdForFriend(friendUid);
-            return sendMessage(chatId, {
-              senderId: currentUser.uid,
-              senderName: currentUser.displayName,
-              type: mediaType,
-              content: finalMediaUrl,
-              duration: duration === 0 ? 999999 : duration,
-            });
+            const chatId = getCanonicalChatId(currentUser.uid, friendUid);
+            const targetFriend = friends.find((f) => f.uid === friendUid);
+            return sendMessage(
+              chatId,
+              {
+                senderId: currentUser.uid,
+                senderName: currentUser.displayName,
+                type: mediaType,
+                content: finalMediaUrl,
+                duration: duration === 0 ? 999999 : duration,
+              },
+              targetFriend || friendUid
+            );
           })
         );
       }

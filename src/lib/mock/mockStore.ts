@@ -273,42 +273,78 @@ class MockDatabase {
   getFriends(): UserProfile[] {
     const user = this.getCurrentUser();
     const friendList = (user.friends || []).map((fid) => this.users[fid] || DEMO_FRIENDS[fid]).filter(Boolean);
-    if (friendList.length > 0) return friendList;
-    // Always guarantee seed friends so the UI is never empty
-    return Object.values(DEMO_FRIENDS).filter((f) => f.uid !== user.uid);
+    const demoList = Object.values(DEMO_FRIENDS).filter((f) => f.uid !== user.uid);
+    // Combine real added friends + demo friends without duplicates
+    const combined = [...friendList];
+    for (const demo of demoList) {
+      if (!combined.some((f) => f.uid === demo.uid)) {
+        combined.push(demo);
+      }
+    }
+    return combined;
+  }
+
+  addFriendDirect(friend: UserProfile): UserProfile {
+    this.users[friend.uid] = friend;
+    const current = this.getCurrentUser();
+    if (!current.friends.includes(friend.uid) && friend.uid !== current.uid) {
+      current.friends.push(friend.uid);
+      this.updateCurrentUser({ friends: [...current.friends] });
+    }
+
+    const cleanCurrent = current.uid.replace('user_', '').toLowerCase();
+    const cleanFriend = friend.uid.replace('user_', '').toLowerCase();
+    const canonicalId =
+      cleanFriend === 'elena' || cleanCurrent === 'elena'
+        ? 'chat_elena'
+        : cleanFriend === 'alex' || cleanCurrent === 'alex'
+        ? 'chat_alex'
+        : cleanFriend === 'sarah' || cleanCurrent === 'sarah'
+        ? 'chat_sarah'
+        : `chat_${[cleanCurrent, cleanFriend].sort().join('_')}`;
+
+    const existingChat = this.chats.find(
+      (c) =>
+        (c.participants.includes(current.uid) && c.participants.includes(friend.uid)) ||
+        c.id === canonicalId
+    );
+
+    if (!existingChat) {
+      const newChat: Chat = {
+        id: canonicalId,
+        participants: [current.uid, friend.uid],
+        participantProfiles: {
+          [current.uid]: current,
+          [friend.uid]: friend,
+        },
+        updatedAt: Date.now(),
+        typing: {},
+      };
+      this.chats.unshift(newChat);
+      this.messages[canonicalId] = [];
+    }
+    this.save();
+    return friend;
   }
 
   addFriend(usernameOrUid: string): UserProfile | null {
-    const normalized = usernameOrUid.toLowerCase().trim();
-    const found = Object.values(this.users).find(
-      (u) => u.username.toLowerCase() === normalized || u.uid.toLowerCase() === normalized
-    ) || Object.values(DEMO_FRIENDS).find(
-      (u) => u.username.toLowerCase() === normalized || u.uid.toLowerCase() === normalized
-    );
+    const normalized = usernameOrUid.toLowerCase().trim().replace('@', '');
+    const found =
+      Object.values(this.users).find(
+        (u) =>
+          u.username.toLowerCase() === normalized ||
+          u.uid.toLowerCase() === normalized ||
+          u.email?.toLowerCase() === normalized
+      ) ||
+      Object.values(DEMO_FRIENDS).find(
+        (u) =>
+          u.username.toLowerCase() === normalized ||
+          u.uid.toLowerCase() === normalized ||
+          u.email?.toLowerCase() === normalized
+      );
 
     if (!found) return null;
-    const current = this.getCurrentUser();
-    if (!current.friends.includes(found.uid) && found.uid !== current.uid) {
-      current.friends.push(found.uid);
-      this.updateCurrentUser({ friends: [...current.friends] });
-
-      // Create a chat if one doesn't exist
-      const existingChat = this.chats.find(
-        (c) => c.participants.includes(current.uid) && c.participants.includes(found.uid)
-      );
-      if (!existingChat) {
-        const newChat: Chat = {
-          id: `chat_${found.uid.replace('user_', '')}`,
-          participants: [current.uid, found.uid],
-          updatedAt: Date.now(),
-          typing: {},
-        };
-        this.chats.unshift(newChat);
-        this.messages[newChat.id] = [];
-      }
-      this.save();
-    }
-    return found;
+    return this.addFriendDirect(found);
   }
 
   // Stories (Firestore TTL simulation)

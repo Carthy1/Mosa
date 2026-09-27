@@ -49,20 +49,70 @@ export async function saveUserProfile(user: UserProfile): Promise<void> {
   }
 }
 
-export async function addFriend(friendUsernameOrUid: string): Promise<UserProfile | null> {
+export async function addFriend(
+  friendUsernameOrUid: string,
+  currentUid?: string
+): Promise<UserProfile | null> {
   // Check local mock store first so demo friends (elena_v, alex_chen, sarah_k) always resolve
   const localFriend = mockStore.addFriend(friendUsernameOrUid);
   if (localFriend) return localFriend;
 
   if (isFirebaseConfigured && db) {
     try {
-      const q = query(
-        collection(db, 'users'),
-        where('username', '==', friendUsernameOrUid.toLowerCase().trim())
+      const cleanInput = friendUsernameOrUid.toLowerCase().trim().replace('@', '');
+      let snap = await getDocs(
+        query(collection(db, 'users'), where('username', '==', cleanInput))
       );
-      const snap = await getDocs(q);
+      if (snap.empty) {
+        // Try searching by email
+        snap = await getDocs(
+          query(collection(db, 'users'), where('email', '==', cleanInput))
+        );
+      }
+
       if (!snap.empty) {
         const friendData = snap.docs[0].data() as UserProfile;
+
+        // 1. Add friend to current user's friends list in Firestore
+        if (currentUid && currentUid !== friendData.uid) {
+          try {
+            await updateDoc(doc(db, 'users', currentUid), {
+              friends: arrayUnion(friendData.uid),
+            });
+            // Also add current user to friend's friends list for bidirectional discovery
+            await updateDoc(doc(db, 'users', friendData.uid), {
+              friends: arrayUnion(currentUid),
+            }).catch(() => {});
+          } catch (e) {
+            console.warn('Firestore update friends list error:', e);
+          }
+        }
+
+        // 2. Add to mockStore so UI updates immediately
+        mockStore.addFriendDirect(friendData);
+
+        // 3. Initialize canonical chat in Firestore
+        if (currentUid && currentUid !== friendData.uid) {
+          const canonicalChatId = getCanonicalChatId(currentUid, friendData.uid);
+          await setDoc(
+            doc(db, 'chats', canonicalChatId),
+            {
+              participants: [currentUid, friendData.uid],
+              participantProfiles: {
+                [currentUid]: { uid: currentUid },
+                [friendData.uid]: {
+                  uid: friendData.uid,
+                  displayName: friendData.displayName,
+                  username: friendData.username,
+                  photoURL: friendData.photoURL || null,
+                },
+              },
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          ).catch(console.warn);
+        }
+
         return friendData;
       }
     } catch (e) {
@@ -206,7 +256,21 @@ export async function deleteStory(storyId: string): Promise<void> {
 // CHATS & MESSAGES SUBCOLLECTION
 // ========================
 
-export function getChatIdForFriend(friendUid: string): string {
+export function getCanonicalChatId(uid1: string, uid2: string): string {
+  const clean1 = (uid1 || '').replace('user_', '').toLowerCase();
+  const clean2 = (uid2 || '').replace('user_', '').toLowerCase();
+  if (clean1 === 'elena' || clean2 === 'elena') return 'chat_elena';
+  if (clean1 === 'alex' || clean2 === 'alex') return 'chat_alex';
+  if (clean1 === 'sarah' || clean2 === 'sarah') return 'chat_sarah';
+
+  const sorted = [uid1, uid2].sort();
+  return `chat_${sorted[0].replace('user_', '')}_${sorted[1].replace('user_', '')}`;
+}
+
+export function getChatIdForFriend(friendUid: string, currentUid?: string): string {
+  if (currentUid) {
+    return getCanonicalChatId(currentUid, friendUid);
+  }
   const clean = friendUid.replace('user_', '').toLowerCase();
   return `chat_${clean}`;
 }
@@ -244,7 +308,15 @@ export function subscribeChats(
               }))
               .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-            callback(liveChats);
+            // Merge liveChats with mockStore demo chats so demo friends remain accessible
+            const demoChats = mockStore.getChats();
+            const merged = [...liveChats];
+            for (const d of demoChats) {
+              if (!merged.some((c) => c.id === d.id)) {
+                merged.push(d);
+              }
+            }
+            callback(merged.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
           } else {
             callback(mockStore.getChats());
           }
@@ -346,7 +418,8 @@ export async function sendMessage(
     content: string;
     duration?: number;
     replyTo?: import('@/types').ReplyTo;
-  }
+  },
+  recipient?: UserProfile | string
 ): Promise<Message> {
   const now = Date.now();
   const msgData = {
@@ -372,24 +445,43 @@ export async function sendMessage(
         createdAt: serverTimestamp(),
       });
 
-      await setDoc(
-        doc(db, 'chats', chatId),
-        {
-          participants: [message.senderId],
-          updatedAt: serverTimestamp(),
-          lastMessage: {
-            content: message.type === 'text' ? message.content : `[${message.type.toUpperCase()} SNAP]`,
-            type: message.type,
-            senderId: message.senderId,
-            viewStatus: 'delivered',
-            createdAt: now,
-            isReply: Boolean(message.replyTo),
-            replyToSenderId: message.replyTo?.senderId,
-            replyToSenderName: message.replyTo?.senderName,
-          },
+      const recipientUid = typeof recipient === 'string' ? recipient : recipient?.uid;
+      const participantUids = [message.senderId];
+      if (recipientUid && recipientUid !== message.senderId) {
+        participantUids.push(recipientUid);
+      }
+
+      const chatUpdate: any = {
+        participants: arrayUnion(...participantUids),
+        updatedAt: serverTimestamp(),
+        lastMessage: {
+          content: message.type === 'text' ? message.content : `[${message.type.toUpperCase()} SNAP]`,
+          type: message.type,
+          senderId: message.senderId,
+          viewStatus: 'delivered',
+          createdAt: now,
+          isReply: Boolean(message.replyTo),
+          replyToSenderId: message.replyTo?.senderId,
+          replyToSenderName: message.replyTo?.senderName,
         },
-        { merge: true }
-      );
+      };
+
+      if (typeof recipient === 'object' && recipient) {
+        chatUpdate[`participantProfiles.${recipient.uid}`] = {
+          uid: recipient.uid,
+          displayName: recipient.displayName,
+          username: recipient.username,
+          photoURL: recipient.photoURL || null,
+        };
+      }
+      if (message.senderName) {
+        chatUpdate[`participantProfiles.${message.senderId}`] = {
+          uid: message.senderId,
+          displayName: message.senderName,
+        };
+      }
+
+      await setDoc(doc(db, 'chats', chatId), chatUpdate, { merge: true });
 
       return { id: docRef.id, ...msgData };
     } catch (e: any) {

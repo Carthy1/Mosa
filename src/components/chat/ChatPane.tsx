@@ -9,6 +9,7 @@ import {
   setTypingStatus,
   addFriend,
   markChatMessagesAsRead,
+  getCanonicalChatId,
 } from '@/lib/firebase/firestore';
 import { DEMO_FRIENDS, mockStore } from '@/lib/mock/mockStore';
 import { EphemeralViewerModal } from '../snap/EphemeralViewerModal';
@@ -151,10 +152,25 @@ export function ChatPane({
   // Get recipient profile for a chat
   const getRecipient = (chat: Chat): UserProfile => {
     const otherUid = chat.participants.find((id) => id !== currentUser.uid) || chat.participants[0] || 'user_elena';
+
+    // 1. Check if recipient profile exists on chat document
+    const details = chat.participantProfiles?.[otherUid] || chat.participantDetails?.[otherUid];
+    if (details) {
+      return {
+        uid: otherUid,
+        displayName: details.displayName || otherUid,
+        username: details.username || otherUid.toLowerCase(),
+        photoURL: details.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
+        friends: [],
+        createdAt: Date.now(),
+      };
+    }
+
+    // 2. Check in friends array
     const friend = friends.find((f) => f.uid === otherUid || otherUid.includes(f.uid));
     if (friend) return friend;
 
-    // Direct check in DEMO_FRIENDS
+    // 3. Direct check in DEMO_FRIENDS
     if (DEMO_FRIENDS[otherUid]) return DEMO_FRIENDS[otherUid];
     for (const key of Object.keys(DEMO_FRIENDS)) {
       if (chat.id.includes(key.replace('user_', '')) || otherUid.includes(key.replace('user_', ''))) {
@@ -162,10 +178,14 @@ export function ChatPane({
       }
     }
 
+    // 4. Direct check in mockStore
+    const storeUser = mockStore.getUser(otherUid);
+    if (storeUser) return storeUser;
+
     return {
       uid: otherUid,
       username: otherUid.replace('user_', ''),
-      displayName: otherUid.replace('user_', '').replace('_', ' ').toUpperCase(),
+      displayName: otherUid.replace('user_', '').replace('_', ' '),
       photoURL: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=250&q=80',
       friends: [],
       createdAt: Date.now(),
@@ -237,20 +257,24 @@ export function ChatPane({
     setMessages((prev) => [...prev, tempMsg]);
 
     // 2. Perform message dispatch
-    const sent = await sendMessage(activeChat.id, {
-      senderId: currentUser.uid,
-      senderName: currentUser.displayName,
-      type: 'text',
-      content,
-      replyTo: replyPayload,
-    });
+    const recipient = getRecipient(activeChat);
+    const sent = await sendMessage(
+      activeChat.id,
+      {
+        senderId: currentUser.uid,
+        senderName: currentUser.displayName,
+        type: 'text',
+        content,
+        replyTo: replyPayload,
+      },
+      recipient
+    );
 
     // Replace optimistic placeholder with confirmed message
     setMessages((prev) => prev.map((m) => (m.id === tempMsg.id ? sent : m)));
 
-    // 3. Realistic Demo Simulation for seed friends
-    const recipient = getRecipient(activeChat);
-    if (recipient.uid.startsWith('user_') && recipient.uid !== currentUser.uid) {
+    // 3. Realistic Demo Simulation for seed friends only
+    if (DEMO_FRIENDS[recipient.uid]) {
       const otherUid = recipient.uid;
       const targetChatId = activeChat.id;
       setTimeout(() => {
@@ -289,16 +313,29 @@ export function ChatPane({
     if (!friendUsernameInput.trim()) return;
 
     setFriendAddStatus('Searching...');
-    const result = await addFriend(friendUsernameInput.trim());
+    const result = await addFriend(friendUsernameInput.trim(), currentUser.uid);
     if (result) {
-      setFriendAddStatus(`Added @${result.username} successfully!`);
+      setFriendAddStatus(`Added @${result.username}! Opening conversation...`);
       setFriendUsernameInput('');
+
+      const canonicalId = getCanonicalChatId(currentUser.uid, result.uid);
+      const targetChat: Chat = {
+        id: canonicalId,
+        participants: [currentUser.uid, result.uid],
+        participantProfiles: {
+          [currentUser.uid]: currentUser,
+          [result.uid]: result,
+        },
+        updatedAt: Date.now(),
+      };
+
       setTimeout(() => {
         setShowAddFriend(false);
         setFriendAddStatus(null);
-      }, 1200);
+        setActiveChat(targetChat);
+      }, 700);
     } else {
-      setFriendAddStatus('User not found. Try "elena_v" or "alex_chen".');
+      setFriendAddStatus('User not found. Try their exact username or email.');
     }
   };
 
@@ -364,15 +401,20 @@ export function ChatPane({
                 <div
                   key={friend.uid}
                   onClick={() => {
+                    const canonicalId = getCanonicalChatId(currentUser.uid, friend.uid);
                     const existing = chats.find(
-                      (c) => c.participants.includes(friend.uid) || c.id.includes(friend.uid.replace('user_', ''))
+                      (c) => c.id === canonicalId || c.participants.includes(friend.uid)
                     );
                     if (existing) {
                       setActiveChat(existing);
                     } else {
                       const newChat: Chat = {
-                        id: `chat_${friend.uid.replace('user_', '')}`,
+                        id: canonicalId,
                         participants: [currentUser.uid, friend.uid],
+                        participantProfiles: {
+                          [currentUser.uid]: currentUser,
+                          [friend.uid]: friend,
+                        },
                         updatedAt: Date.now(),
                       };
                       setActiveChat(newChat);
@@ -909,16 +951,35 @@ export function ChatPane({
               </button>
             </div>
 
+            {/* Share your own handle card */}
+            <div className="mt-4 p-3.5 bg-yellow-400/10 border border-yellow-400/25 rounded-2xl flex items-center justify-between">
+              <div className="min-w-0 pr-2">
+                <p className="text-[10px] text-white/50 font-bold uppercase tracking-wider">Your Mosa Handle</p>
+                <p className="text-sm font-black text-yellow-300 truncate">@{currentUser.username}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(currentUser.username);
+                  setFriendAddStatus(`Copied @${currentUser.username} to clipboard! Share with your friend.`);
+                  setTimeout(() => setFriendAddStatus(null), 3000);
+                }}
+                className="px-3 py-1.5 bg-yellow-400 text-black hover:bg-yellow-300 rounded-xl text-xs font-black transition-colors cursor-pointer flex-shrink-0 shadow"
+              >
+                Copy
+              </button>
+            </div>
+
             <form onSubmit={handleAddFriendSubmit} className="mt-4 space-y-4">
               <div>
-                <label className="text-xs text-white/60 font-semibold mb-1 block">
-                  Friend Handle / Username
+                <label className="text-xs text-white/70 font-semibold mb-1 block">
+                  Find Friend by Username or Email
                 </label>
                 <input
                   type="text"
                   value={friendUsernameInput}
                   onChange={(e) => setFriendUsernameInput(e.target.value)}
-                  placeholder="e.g. elena_v or alex_chen"
+                  placeholder="e.g. friend_username or email"
                   autoFocus
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 outline-none focus:border-yellow-400 transition-colors"
                 />
@@ -932,7 +993,7 @@ export function ChatPane({
                 type="submit"
                 className="w-full py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-extrabold rounded-xl shadow active:scale-98 transition-all cursor-pointer text-sm"
               >
-                Add Friend
+                Add & Start Chatting
               </button>
             </form>
           </div>

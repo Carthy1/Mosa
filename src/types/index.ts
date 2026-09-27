@@ -41,7 +41,8 @@ export interface Message {
 export interface Chat {
   id: string;
   participants: string[];
-  participantProfiles?: Record<string, UserProfile>;
+  participantProfiles?: Record<string, Partial<UserProfile>>;
+  participantDetails?: Record<string, Partial<UserProfile>>;
   lastMessage?: {
     content: string;
     type: SnapMediaType;
