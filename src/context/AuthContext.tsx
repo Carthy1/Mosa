@@ -214,9 +214,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     if (isFirebaseConfigured && auth) {
-      await fbSignOut(auth);
+      try {
+        await fbSignOut(auth);
+      } catch (e) {
+        console.warn('Firebase signout error:', e);
+      }
     }
     await fetch('/api/auth/session', { method: 'DELETE' }).catch(console.warn);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('ephemeral_current_user');
+        localStorage.removeItem('mosa_auth_user');
+        sessionStorage.clear();
+      } catch (e) {}
+    }
     setUser(null);
     setFirebaseUser(null);
   };

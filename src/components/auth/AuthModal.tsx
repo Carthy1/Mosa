@@ -131,18 +131,15 @@ export function AuthModal({ onClose }: AuthModalProps) {
             </div>
           </div>
 
-          {firebaseUser ? (
-            <button
-              onClick={() => signOut()}
-              className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 px-3 py-1.5 rounded-xl font-semibold transition-colors cursor-pointer"
-            >
-              Sign Out
-            </button>
-          ) : (
-            <span className="text-[10px] bg-yellow-400/20 text-yellow-300 font-bold px-2 py-0.5 rounded-full border border-yellow-400/30">
-              Active User
-            </span>
-          )}
+          <button
+            onClick={async () => {
+              await signOut();
+              onClose();
+            }}
+            className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 px-3 py-1.5 rounded-xl font-semibold transition-colors cursor-pointer flex items-center gap-1.5"
+          >
+            Sign Out
+          </button>
         </div>
 
         {/* Tabs: Sign In / Create Account / Switch Profile */}

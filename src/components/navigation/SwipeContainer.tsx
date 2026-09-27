@@ -42,13 +42,13 @@ export function SwipeContainer() {
 
   useEffect(() => {
     // Load initial user and friends
-    const user = mockStore.getCurrentUser();
+    const user = authUser || mockStore.getCurrentUser();
     setCurrentUser(user);
     setFriends(mockStore.getFriends());
 
     // Listen for mock store updates
     const unsubscribeStore = mockStore.subscribe(() => {
-      setCurrentUser(mockStore.getCurrentUser());
+      setCurrentUser(authUser || mockStore.getCurrentUser());
       setFriends(mockStore.getFriends());
     });
 
