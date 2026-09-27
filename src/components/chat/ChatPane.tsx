@@ -1060,9 +1060,31 @@ export function ChatPane({
 
                   <div className="overflow-y-auto space-y-2 max-h-44 pr-1 scroll-touch">
                     {filteredList.length === 0 ? (
-                      <div className="py-3 text-center text-xs text-white/40">
-                        {loadingUsers ? 'Searching community...' : 'No users matching your search.'}
-                      </div>
+                      friendUsernameInput.trim() ? (
+                        <div className="p-2.5 bg-gradient-to-r from-purple-900/40 to-fuchsia-900/30 border border-purple-500/40 rounded-2xl flex items-center justify-between gap-3 animate-in fade-in">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center font-black text-xs text-white flex-shrink-0 shadow">
+                              {friendUsernameInput.replace('@', '').charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-white truncate">{friendUsernameInput.replace('@', '')}</p>
+                              <p className="text-[11px] text-yellow-300 truncate">@{friendUsernameInput.toLowerCase().trim().replace('@', '')}</p>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleConnectWithUser(friendUsernameInput)}
+                            className="px-3 py-1.5 bg-yellow-400 hover:bg-yellow-300 text-black rounded-xl text-xs font-black transition-all shadow active:scale-95 flex-shrink-0 cursor-pointer"
+                          >
+                            + Add & Chat
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="py-3 text-center text-xs text-white/40">
+                          {loadingUsers ? 'Searching community...' : 'No users matching your search.'}
+                        </div>
+                      )
                     ) : (
                       filteredList.map((u) => {
                         const isAlreadyFriend = (currentUser.friends || []).includes(u.uid);

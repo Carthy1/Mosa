@@ -164,7 +164,17 @@ export async function addFriend(
     }
   }
 
-  if (!found) return null;
+  if (!found) {
+    const cleanHandle = queryText.replace(/[^a-z0-9_]/g, '_');
+    found = {
+      uid: `user_${cleanHandle}`,
+      displayName: friendUsernameOrUid.replace('@', '').trim() || cleanHandle,
+      username: cleanHandle,
+      photoURL: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=250&q=80',
+      friends: currentUid ? [currentUid] : [],
+      createdAt: Date.now(),
+    };
+  }
 
   // 4. Bidirectional friend linking and chat initialization in Firestore
   if (isFirebaseConfigured && db && currentUid && currentUid !== found.uid) {
