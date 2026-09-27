@@ -10,6 +10,7 @@ import {
   addFriend,
   markChatMessagesAsRead,
   getCanonicalChatId,
+  getAllUsers,
 } from '@/lib/firebase/firestore';
 import { DEMO_FRIENDS, mockStore } from '@/lib/mock/mockStore';
 import { EphemeralViewerModal } from '../snap/EphemeralViewerModal';
@@ -57,8 +58,22 @@ export function ChatPane({
   const [showAddFriend, setShowAddFriend] = useState(false);
   const [friendUsernameInput, setFriendUsernameInput] = useState('');
   const [friendAddStatus, setFriendAddStatus] = useState<string | null>(null);
+  const [communityUsers, setCommunityUsers] = useState<UserProfile[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (showAddFriend) {
+      setLoadingUsers(true);
+      getAllUsers()
+        .then((users) => {
+          setCommunityUsers(users.filter((u) => u.uid !== currentUser.uid));
+        })
+        .catch(console.warn)
+        .finally(() => setLoadingUsers(false));
+    }
+  }, [showAddFriend, currentUser.uid]);
 
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -308,14 +323,23 @@ export function ChatPane({
     }
   };
 
-  const handleAddFriendSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!friendUsernameInput.trim()) return;
+  const handleConnectWithUser = async (targetUsernameOrUid: string) => {
+    const clean = targetUsernameOrUid.trim().toLowerCase().replace('@', '');
+    if (!clean) return;
 
-    setFriendAddStatus('Searching...');
-    const result = await addFriend(friendUsernameInput.trim(), currentUser.uid);
+    if (
+      clean === currentUser.username.toLowerCase() ||
+      clean === currentUser.uid.toLowerCase() ||
+      (currentUser.email && clean === currentUser.email.toLowerCase())
+    ) {
+      setFriendAddStatus("That's your own account! Share your handle with your friend or add them using their username.");
+      return;
+    }
+
+    setFriendAddStatus('Connecting...');
+    const result = await addFriend(clean, currentUser.uid);
     if (result) {
-      setFriendAddStatus(`Added @${result.username}! Opening conversation...`);
+      setFriendAddStatus(`Connected with @${result.username}! Opening conversation...`);
       setFriendUsernameInput('');
 
       const canonicalId = getCanonicalChatId(currentUser.uid, result.uid);
@@ -333,10 +357,16 @@ export function ChatPane({
         setShowAddFriend(false);
         setFriendAddStatus(null);
         setActiveChat(targetChat);
-      }, 700);
+      }, 600);
     } else {
-      setFriendAddStatus('User not found. Try their exact username or email.');
+      setFriendAddStatus(`User not found. Try their exact username, or select from the suggested friends below.`);
     }
+  };
+
+  const handleAddFriendSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!friendUsernameInput.trim()) return;
+    handleConnectWithUser(friendUsernameInput);
   };
 
   return (
@@ -934,8 +964,8 @@ export function ChatPane({
       {/* Add Friend Modal */}
       {showAddFriend && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#16161e] border border-white/15 rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
-            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+          <div className="bg-[#16161e] border border-white/15 rounded-3xl p-5 sm:p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-white/10 flex-shrink-0">
               <h3 className="font-bold text-base flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-yellow-400" />
                 <span>Add Friend</span>
@@ -952,10 +982,11 @@ export function ChatPane({
             </div>
 
             {/* Share your own handle card */}
-            <div className="mt-4 p-3.5 bg-yellow-400/10 border border-yellow-400/25 rounded-2xl flex items-center justify-between">
+            <div className="mt-3 p-3 bg-yellow-400/10 border border-yellow-400/25 rounded-2xl flex items-center justify-between flex-shrink-0">
               <div className="min-w-0 pr-2">
                 <p className="text-[10px] text-white/50 font-bold uppercase tracking-wider">Your Mosa Handle</p>
                 <p className="text-sm font-black text-yellow-300 truncate">@{currentUser.username}</p>
+                <p className="text-[11px] text-white/60 truncate">{currentUser.displayName}</p>
               </div>
               <button
                 type="button"
@@ -970,32 +1001,103 @@ export function ChatPane({
               </button>
             </div>
 
-            <form onSubmit={handleAddFriendSubmit} className="mt-4 space-y-4">
+            <form onSubmit={handleAddFriendSubmit} className="mt-3 space-y-3 flex-shrink-0">
               <div>
                 <label className="text-xs text-white/70 font-semibold mb-1 block">
-                  Find Friend by Username or Email
+                  Find Friend by Username, Name, or Email
                 </label>
-                <input
-                  type="text"
-                  value={friendUsernameInput}
-                  onChange={(e) => setFriendUsernameInput(e.target.value)}
-                  placeholder="e.g. friend_username or email"
-                  autoFocus
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 outline-none focus:border-yellow-400 transition-colors"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={friendUsernameInput}
+                    onChange={(e) => setFriendUsernameInput(e.target.value)}
+                    placeholder="e.g. friend_username or name"
+                    autoFocus
+                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-white/30 outline-none focus:border-yellow-400 transition-colors"
+                  />
+                  <Search className="w-4 h-4 text-white/40 absolute left-3 top-3" />
+                </div>
               </div>
 
               {friendAddStatus && (
-                <p className="text-xs text-yellow-400 font-medium">{friendAddStatus}</p>
+                <div className="p-2.5 bg-yellow-400/10 border border-yellow-400/20 rounded-xl">
+                  <p className="text-xs text-yellow-300 font-medium">{friendAddStatus}</p>
+                </div>
               )}
 
               <button
                 type="submit"
-                className="w-full py-3 bg-yellow-400 hover:bg-yellow-300 text-black font-extrabold rounded-xl shadow active:scale-98 transition-all cursor-pointer text-sm"
+                disabled={!friendUsernameInput.trim()}
+                className="w-full py-2.5 bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 text-black font-extrabold rounded-xl shadow active:scale-98 transition-all cursor-pointer text-sm"
               >
-                Add & Start Chatting
+                Search & Add
               </button>
             </form>
+
+            {/* Filtered Suggested Users List */}
+            {(() => {
+              const q = friendUsernameInput.toLowerCase().trim().replace('@', '');
+              const filteredList = communityUsers.filter((u) => {
+                if (!q) return true;
+                return (
+                  u.username.toLowerCase().includes(q) ||
+                  u.displayName.toLowerCase().includes(q) ||
+                  (u.email && u.email.toLowerCase().includes(q))
+                );
+              });
+
+              return (
+                <div className="mt-3 border-t border-white/10 pt-3 flex-1 min-h-0 flex flex-col">
+                  <div className="flex items-center justify-between mb-2 flex-shrink-0">
+                    <span className="text-[11px] font-bold text-white/50 uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
+                      Suggested Friends
+                    </span>
+                    {loadingUsers && (
+                      <span className="text-[10px] text-white/40 animate-pulse">Loading...</span>
+                    )}
+                  </div>
+
+                  <div className="overflow-y-auto space-y-2 max-h-44 pr-1 scroll-touch">
+                    {filteredList.length === 0 ? (
+                      <div className="py-3 text-center text-xs text-white/40">
+                        {loadingUsers ? 'Searching community...' : 'No users matching your search.'}
+                      </div>
+                    ) : (
+                      filteredList.map((u) => {
+                        const isAlreadyFriend = (currentUser.friends || []).includes(u.uid);
+                        return (
+                          <div
+                            key={u.uid}
+                            className="p-2 bg-white/5 hover:bg-white/10 border border-white/5 rounded-2xl flex items-center justify-between gap-3 transition-colors"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <img
+                                src={u.photoURL || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80'}
+                                alt={u.displayName}
+                                className="w-8 h-8 rounded-full object-cover border border-white/20 flex-shrink-0"
+                              />
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-white truncate">{u.displayName}</p>
+                                <p className="text-[11px] text-yellow-300/80 truncate">@{u.username}</p>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleConnectWithUser(u.username)}
+                              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow active:scale-95 flex-shrink-0 flex items-center gap-1 cursor-pointer"
+                            >
+                              {isAlreadyFriend ? 'Chat' : '+ Add'}
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

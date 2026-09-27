@@ -3,7 +3,7 @@ import { UserProfile, Story, Chat, Message } from '@/types';
 // Default mock current user
 export const DEFAULT_USER: UserProfile = {
   uid: 'user_maccarthy',
-  username: 'maccarthy_qa',
+  username: 'maccarthy_c',
   displayName: 'MacCarthy Collins Setor',
   email: 'maccarthy@ephemeral.social',
   photoURL: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
@@ -284,6 +284,18 @@ class MockDatabase {
     return this.users[uid] || DEMO_FRIENDS[uid];
   }
 
+  saveUser(profile: UserProfile): void {
+    if (!profile || !profile.uid) return;
+    this.users[profile.uid] = profile;
+    if (this.currentUid === profile.uid) {
+      this.save();
+    }
+  }
+
+  getAllUsers(): UserProfile[] {
+    return Object.values(this.users);
+  }
+
   getFriends(): UserProfile[] {
     const user = this.getCurrentUser();
     const friendList = (user.friends || []).map((fid) => this.users[fid] || DEMO_FRIENDS[fid]).filter(Boolean);
@@ -348,25 +360,35 @@ class MockDatabase {
     const normalized = usernameOrUid.toLowerCase().trim().replace('@', '');
     const current = this.getCurrentUser();
 
-    // Never add or return oneself
+    // Never add oneself
     if (
       current.username.toLowerCase() === normalized ||
       current.uid.toLowerCase() === normalized ||
-      current.email?.toLowerCase() === normalized
+      (current.email && current.email.toLowerCase() === normalized)
     ) {
       return null;
     }
 
-    // Only match against seed DEMO_FRIENDS!
-    // Real users must be looked up and added from live Firestore
-    const foundDemo = Object.values(DEMO_FRIENDS).find(
+    const candidates = [
+      DEFAULT_USER,
+      { ...DEFAULT_USER, username: 'maccarthy_qa' },
+      ...Object.values(DEMO_FRIENDS),
+      ...Object.values(this.users),
+    ];
+
+    const found = candidates.find(
       (u) =>
-        u.username.toLowerCase() === normalized ||
-        u.uid.toLowerCase() === normalized
+        u.uid !== current.uid &&
+        (u.username.toLowerCase() === normalized ||
+          u.uid.toLowerCase() === normalized ||
+          u.displayName.toLowerCase() === normalized ||
+          u.displayName.toLowerCase().includes(normalized) ||
+          u.username.toLowerCase().includes(normalized) ||
+          (u.email && u.email.toLowerCase() === normalized))
     );
 
-    if (foundDemo) {
-      return this.addFriendDirect(foundDemo);
+    if (found) {
+      return this.addFriendDirect(found);
     }
 
     return null;

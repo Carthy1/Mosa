@@ -16,7 +16,7 @@ import {
   arrayUnion,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from './config';
-import { mockStore } from '../mock/mockStore';
+import { mockStore, DEFAULT_USER, DEMO_FRIENDS } from '../mock/mockStore';
 import { UserProfile, Story, Chat, Message, SnapViewStatus } from '@/types';
 
 // ========================
@@ -38,7 +38,11 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
 }
 
 export async function saveUserProfile(user: UserProfile): Promise<void> {
-  mockStore.updateCurrentUser(user);
+  // Store user in local registry without accidentally overwriting active session
+  mockStore.saveUser(user);
+  if (mockStore.getCurrentUser().uid === user.uid) {
+    mockStore.updateCurrentUser(user);
+  }
 
   if (isFirebaseConfigured && db) {
     try {
@@ -49,85 +53,157 @@ export async function saveUserProfile(user: UserProfile): Promise<void> {
   }
 }
 
+/**
+ * Returns all discoverable users combining live Firestore registered users + mockStore + demo personas.
+ */
+export async function getAllUsers(): Promise<UserProfile[]> {
+  const usersMap = new Map<string, UserProfile>();
+
+  // 1. Seed profiles, demo friends, and any local accounts registered on this client
+  const fallbackCandidates = [
+    DEFAULT_USER,
+    {
+      ...DEFAULT_USER,
+      username: 'maccarthy_qa', // Legacy alias
+    },
+    ...Object.values(DEMO_FRIENDS),
+    ...mockStore.getAllUsers(),
+  ];
+
+  for (const cand of fallbackCandidates) {
+    if (cand && cand.uid) {
+      usersMap.set(cand.uid, cand);
+    }
+  }
+
+  // 2. Fetch all registered users from Firestore users collection
+  if (isFirebaseConfigured && db) {
+    try {
+      const snap = await getDocs(collection(db, 'users'));
+      snap.forEach((d) => {
+        const data = d.data() as UserProfile;
+        if (data && data.uid) {
+          usersMap.set(data.uid, data);
+        }
+      });
+    } catch (e: any) {
+      console.warn('Firestore getAllUsers notice:', e?.message || e);
+    }
+  }
+
+  return Array.from(usersMap.values());
+}
+
 export async function addFriend(
   friendUsernameOrUid: string,
   currentUid?: string
 ): Promise<UserProfile | null> {
-  const cleanInput = friendUsernameOrUid.toLowerCase().trim().replace('@', '');
+  const queryText = friendUsernameOrUid.toLowerCase().trim().replace('@', '');
+  if (!queryText) return null;
 
-  // 1. Search live Firestore FIRST for real registered users
-  if (isFirebaseConfigured && db) {
+  // 1. Fetch available users across Firestore and local candidates
+  const allUsers = await getAllUsers();
+
+  // 2. Perform comprehensive matching:
+  // Step A: Exact matches on username, email, displayName, or UID
+  // Step B: Partial/substring matches on username, displayName, or email
+  let found =
+    allUsers.find(
+      (u) =>
+        u.uid !== currentUid &&
+        (u.username.toLowerCase() === queryText ||
+          u.email?.toLowerCase() === queryText ||
+          u.displayName.toLowerCase() === queryText ||
+          u.uid.toLowerCase() === queryText)
+    ) ||
+    allUsers.find(
+      (u) =>
+        u.uid !== currentUid &&
+        (u.username.toLowerCase().includes(queryText) ||
+          queryText.includes(u.username.toLowerCase()) ||
+          u.displayName.toLowerCase().includes(queryText) ||
+          u.email?.toLowerCase().includes(queryText))
+    );
+
+  // 3. Fallback: Direct Firestore query if collection listing was unavailable
+  if (!found && isFirebaseConfigured && db) {
     try {
-      let snap = await getDocs(
-        query(collection(db, 'users'), where('username', '==', cleanInput))
-      );
-      if (snap.empty) {
-        // Try searching by email
-        snap = await getDocs(
-          query(collection(db, 'users'), where('email', '==', cleanInput))
-        );
-      }
-
-      if (!snap.empty) {
-        const friendData = snap.docs[0].data() as UserProfile;
-
-        // Never add oneself
-        if (currentUid && friendData.uid === currentUid) {
-          return null;
+      const qUser = query(collection(db, 'users'), where('username', '==', queryText));
+      const snapUser = await getDocs(qUser);
+      if (!snapUser.empty) {
+        const docUser = snapUser.docs[0].data() as UserProfile;
+        if (docUser && docUser.uid !== currentUid) {
+          found = docUser;
         }
+      }
+    } catch (e) {}
 
-        // 1. Add friend to current user's friends list in Firestore
-        if (currentUid) {
-          try {
-            await updateDoc(doc(db, 'users', currentUid), {
-              friends: arrayUnion(friendData.uid),
-            });
-            // Also add current user to friend's friends list for bidirectional discovery
-            await updateDoc(doc(db, 'users', friendData.uid), {
-              friends: arrayUnion(currentUid),
-            }).catch(() => {});
-          } catch (e) {
-            console.warn('Firestore update friends list error:', e);
+    if (!found) {
+      try {
+        const qEmail = query(collection(db, 'users'), where('email', '==', queryText));
+        const snapEmail = await getDocs(qEmail);
+        if (!snapEmail.empty) {
+          const docEmail = snapEmail.docs[0].data() as UserProfile;
+          if (docEmail && docEmail.uid !== currentUid) {
+            found = docEmail;
           }
         }
+      } catch (e) {}
+    }
 
-        // 2. Add to mockStore so UI updates immediately without modifying active user identity
-        mockStore.addFriendDirect(friendData);
-
-        // 3. Initialize canonical chat in Firestore
-        if (currentUid) {
-          const canonicalChatId = getCanonicalChatId(currentUid, friendData.uid);
-          await setDoc(
-            doc(db, 'chats', canonicalChatId),
-            {
-              participants: [currentUid, friendData.uid],
-              participantProfiles: {
-                [currentUid]: { uid: currentUid },
-                [friendData.uid]: {
-                  uid: friendData.uid,
-                  displayName: friendData.displayName,
-                  username: friendData.username,
-                  photoURL: friendData.photoURL || null,
-                },
-              },
-              updatedAt: serverTimestamp(),
-            },
-            { merge: true }
-          ).catch(console.warn);
+    if (!found) {
+      try {
+        const docSnap = await getDoc(doc(db, 'users', queryText));
+        if (docSnap.exists()) {
+          const docData = docSnap.data() as UserProfile;
+          if (docData && docData.uid !== currentUid) {
+            found = docData;
+          }
         }
-
-        return friendData;
-      }
-    } catch (e) {
-      console.warn('Firestore addFriend query error:', e);
+      } catch (e) {}
     }
   }
 
-  // 2. Fallback to mock store demo bots (elena_v, alex_chen, sarah_k)
-  const localFriend = mockStore.addFriend(cleanInput);
-  if (localFriend) return localFriend;
+  if (!found) return null;
 
-  return null;
+  // 4. Bidirectional friend linking and chat initialization in Firestore
+  if (isFirebaseConfigured && db && currentUid && currentUid !== found.uid) {
+    try {
+      await updateDoc(doc(db, 'users', currentUid), {
+        friends: arrayUnion(found.uid),
+      }).catch(console.warn);
+
+      await updateDoc(doc(db, 'users', found.uid), {
+        friends: arrayUnion(currentUid),
+      }).catch(console.warn);
+
+      const canonicalChatId = getCanonicalChatId(currentUid, found.uid);
+      await setDoc(
+        doc(db, 'chats', canonicalChatId),
+        {
+          participants: [currentUid, found.uid],
+          participantProfiles: {
+            [currentUid]: { uid: currentUid },
+            [found.uid]: {
+              uid: found.uid,
+              displayName: found.displayName,
+              username: found.username,
+              photoURL: found.photoURL || null,
+            },
+          },
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      ).catch(console.warn);
+    } catch (e) {
+      console.warn('Firestore friend linking error:', e);
+    }
+  }
+
+  // 5. Update mockStore friends without altering current user identity
+  mockStore.addFriendDirect(found);
+
+  return found;
 }
 
 // ========================

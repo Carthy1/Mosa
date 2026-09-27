@@ -10,7 +10,7 @@ import { AuthModal } from '../auth/AuthModal';
 import { useAuth } from '@/context/AuthContext';
 import { UserProfile, Chat, Story } from '@/types';
 import { mockStore, DEFAULT_USER } from '@/lib/mock/mockStore';
-import { subscribeChats, subscribeStories } from '@/lib/firebase/firestore';
+import { subscribeChats, subscribeStories, saveUserProfile } from '@/lib/firebase/firestore';
 import {
   MessageSquare,
   Camera,
@@ -38,6 +38,7 @@ export function SwipeContainer() {
     if (authUser) {
       mockStore.setCurrentUser(authUser);
       setCurrentUser(authUser);
+      saveUserProfile(authUser);
     }
   }, [authUser]);
 
@@ -46,6 +47,7 @@ export function SwipeContainer() {
     const user = authUser || mockStore.getCurrentUser();
     setCurrentUser(user);
     setFriends(mockStore.getFriends());
+    saveUserProfile(user);
 
     // Listen for mock store updates
     const unsubscribeStore = mockStore.subscribe(() => {

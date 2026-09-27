@@ -256,12 +256,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token }),
         });
-        const profile = await getUserProfile(cred.user.uid);
-        if (profile) {
-          mockStore.setCurrentUser(profile);
-          setUser(profile);
-          persistLocalUser(profile);
+        let profile = await getUserProfile(cred.user.uid);
+        if (!profile) {
+          profile = {
+            uid: cred.user.uid,
+            displayName: cred.user.displayName || 'Google User',
+            username: (cred.user.displayName || cred.user.email?.split('@')[0] || 'user')
+              .toLowerCase()
+              .replace(/[^a-z0-9_]/g, '_'),
+            email: cred.user.email || '',
+            photoURL: cred.user.photoURL || undefined,
+            friends: [],
+            createdAt: Date.now(),
+          };
+          await saveUserProfile(profile);
         }
+        mockStore.setCurrentUser(profile);
+        setUser(profile);
+        persistLocalUser(profile);
         return;
       } catch (err: any) {
         throw formatFirebaseError(err);
