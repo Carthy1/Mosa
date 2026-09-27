@@ -297,8 +297,14 @@ export function ARCamera({
 
       // If WebGL Three.js canvas exists, force synchronous render of current frame and overlay
       if (canvasRef.current && engineRef.current) {
-        engineRef.current.renderOnce();
-        ctx.drawImage(canvasRef.current, 0, 0, width, height);
+        try {
+          if (typeof engineRef.current.renderOnce === 'function') {
+            engineRef.current.renderOnce();
+          }
+          ctx.drawImage(canvasRef.current, 0, 0, width, height);
+        } catch (overlayErr) {
+          console.warn('WebGL overlay draw warning:', overlayErr);
+        }
       }
 
       // Generate instant high-quality JPEG Data URL (synchronous, reliable on all iOS Safari & Chrome versions)

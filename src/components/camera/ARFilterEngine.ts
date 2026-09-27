@@ -395,6 +395,12 @@ export class ARFilterEngine {
     }
   };
 
+  public renderOnce() {
+    if (this.renderer && this.scene && this.camera && !this.isDisposed) {
+      this.renderer.render(this.scene, this.camera);
+    }
+  }
+
   public resize(width: number, height: number) {
     if (!this.renderer || !this.camera) return;
     this.camera.aspect = width / height;
