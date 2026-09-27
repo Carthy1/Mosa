@@ -172,7 +172,10 @@ export function SwipeContainer() {
 
       {/* Floating Bottom Navigation Bar: visible on Chat (Pane 0) and Stories (Pane 2); hidden on Camera (Pane 1) to give the Shutter button 100% unobstructed room */}
       {!(activePane === 1 || (activePane === 0 && isChatOpen)) && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-auto flex justify-center pb-[max(1.25rem,env(safe-area-inset-bottom))] px-6 animate-in fade-in duration-200">
+        <div
+          className="fixed bottom-0 left-0 right-0 z-40 pointer-events-auto flex justify-center px-6 animate-in fade-in duration-200"
+          style={{ paddingBottom: 'max(1.25rem, calc(env(safe-area-inset-bottom, 20px) + 0.5rem))' }}
+        >
           <div className="bg-black/60 backdrop-blur-2xl border border-white/15 px-6 py-2.5 rounded-full flex items-center gap-8 shadow-2xl">
           {/* Chat Tab (Left) */}
           <button

@@ -45,6 +45,16 @@ export function EphemeralViewerModal({
     return () => clearInterval(interval);
   }, [initialDuration, isSaved]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleExpire();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const handleSaveSnap = async () => {
     setIsSaved(true);
     setJustSavedNotification(true);
@@ -102,7 +112,10 @@ export function EphemeralViewerModal({
       }`}
     >
       {/* Top Countdown Bar & Sender Info */}
-      <div className="relative z-30 w-full p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
+      <div
+        className="relative z-30 w-full p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent"
+        style={{ paddingTop: 'max(1.25rem, calc(env(safe-area-inset-top, 24px) + 0.5rem))' }}
+      >
         {/* Progress depletion line */}
         <div className="w-full h-1 bg-white/20 rounded-full overflow-hidden mb-3">
           <div

@@ -527,7 +527,10 @@ export function ARCamera({
       )}
 
       {/* 4. Top Camera Toolbar */}
-      <div className="absolute top-[max(1rem,env(safe-area-inset-top))] left-4 right-4 z-20 flex items-center justify-between pointer-events-auto">
+      <div
+        className="absolute left-4 right-4 z-20 flex items-center justify-between pointer-events-auto"
+        style={{ top: 'max(1.25rem, calc(env(safe-area-inset-top, 24px) + 0.5rem))' }}
+      >
         {/* Profile / Status badge with Mosa branding */}
         <div className="flex items-center gap-2.5">
           <button

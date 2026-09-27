@@ -51,6 +51,20 @@ export function SnapPreviewModal({
 
   const timerOptions = [3, 5, 10, 15, 0]; // 0 means infinity
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isUploading) {
+        if (showSendDrawer) {
+          setShowSendDrawer(false);
+        } else {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isUploading, showSendDrawer, onClose]);
+
   const toggleFriend = (uid: string) => {
     setSelectedFriends((prev) =>
       prev.includes(uid) ? prev.filter((id) => id !== uid) : [...prev, uid]
@@ -184,7 +198,10 @@ export function SnapPreviewModal({
       )}
 
       {/* Top Controls Overlay */}
-      <div className="relative z-30 w-full flex items-center justify-between p-4 pt-[max(1rem,env(safe-area-inset-top))] bg-gradient-to-b from-black/70 via-black/20 to-transparent">
+      <div
+        className="relative z-30 w-full flex items-center justify-between p-4 bg-gradient-to-b from-black/70 via-black/20 to-transparent"
+        style={{ paddingTop: 'max(1.25rem, calc(env(safe-area-inset-top, 24px) + 0.5rem))' }}
+      >
         <button
           onClick={onClose}
           disabled={isUploading}

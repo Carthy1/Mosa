@@ -53,6 +53,16 @@ export function StoryViewerModal({
     };
   }, [currentIndex, isPaused, stories.length]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   const handleNext = () => {
     if (currentIndex < stories.length - 1) {
       setCurrentIndex((prev) => prev + 1);
@@ -92,7 +102,10 @@ export function StoryViewerModal({
       onTouchEnd={() => setIsPaused(false)}
     >
       {/* Top Segmented Progress Bars */}
-      <div className="relative z-30 w-full p-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
+      <div
+        className="relative z-30 w-full p-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent"
+        style={{ paddingTop: 'max(1.25rem, calc(env(safe-area-inset-top, 24px) + 0.5rem))' }}
+      >
         <div className="flex items-center gap-1.5 mb-2.5">
           {stories.map((story, idx) => (
             <div
