@@ -86,6 +86,17 @@ export function SwipeContainer() {
     };
   }, [authUser]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowQAModal(false);
+        setShowAuthModal(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // Handle Drag Gesture end
   const handleDragEnd = (event: any, info: PanInfo) => {
     const swipeThreshold = 50;

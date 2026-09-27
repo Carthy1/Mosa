@@ -113,10 +113,18 @@ export function QAAuditModal({ onClose, activePane }: QAAuditModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 select-none">
-      <div className="bg-[#12121a] border border-white/15 rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 shadow-2xl flex flex-col text-white animate-in zoom-in-95">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-white/10">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 select-none cursor-pointer"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-[#12121a] border border-white/15 rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-2xl flex flex-col text-white animate-in zoom-in-95 cursor-default relative"
+      >
+        {/* Sticky Header */}
+        <div className="sticky -top-5 sm:-top-6 z-30 bg-[#12121a]/95 backdrop-blur-xl pt-1 pb-3 -mt-1 border-b border-white/10 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
               <ShieldCheck className="w-6 h-6 text-yellow-400" />
@@ -129,7 +137,8 @@ export function QAAuditModal({ onClose, activePane }: QAAuditModalProps) {
 
           <button
             onClick={onClose}
-            className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-white/70 hover:text-white cursor-pointer"
+            className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 active:scale-90 flex items-center justify-center text-white/70 hover:text-white cursor-pointer transition-transform"
+            title="Close Diagnostics"
           >
             <X className="w-5 h-5" />
           </button>

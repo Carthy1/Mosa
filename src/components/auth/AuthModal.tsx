@@ -86,10 +86,18 @@ export function AuthModal({ onClose }: AuthModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-[#12121a] border border-white/15 rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto scroll-touch p-6 shadow-2xl flex flex-col text-white animate-in zoom-in-95">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-white/10">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-[#12121a] border border-white/15 rounded-3xl w-full max-w-md max-h-[90vh] overflow-y-auto scroll-touch p-5 sm:p-6 shadow-2xl flex flex-col text-white animate-in zoom-in-95 cursor-default relative"
+      >
+        {/* Sticky Header */}
+        <div className="sticky -top-5 sm:-top-6 z-30 bg-[#12121a]/95 backdrop-blur-xl pt-1 pb-3 -mt-1 border-b border-white/10 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-yellow-400 to-amber-500 flex items-center justify-center shadow-lg">
               <Flame className="w-5 h-5 text-black fill-black" />
@@ -111,9 +119,10 @@ export function AuthModal({ onClose }: AuthModalProps) {
 
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/70 hover:text-white cursor-pointer"
+            className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 active:scale-90 flex items-center justify-center text-white/80 hover:text-white cursor-pointer transition-transform"
+            title="Close Menu"
           >
-            <X className="w-4 h-4" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -367,6 +376,18 @@ export function AuthModal({ onClose }: AuthModalProps) {
             </div>
           </div>
         )}
+
+        {/* Bottom Close Button */}
+        <div className="mt-5 pt-3 border-t border-white/10 flex-shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-3 rounded-xl bg-white/10 hover:bg-white/15 active:scale-98 text-white font-bold text-sm transition-all cursor-pointer flex items-center justify-center gap-2"
+          >
+            <X className="w-4 h-4" />
+            <span>Close Menu</span>
+          </button>
+        </div>
       </div>
     </div>
   );

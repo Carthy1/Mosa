@@ -133,6 +133,22 @@ export function ChatPane({
     onActiveChatChange?.(Boolean(activeChat));
   }, [activeChat, onActiveChatChange]);
 
+  // Global Escape key listener to leave chat or close modal immediately
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (showAddFriend) {
+          setShowAddFriend(false);
+          setFriendAddStatus(null);
+        } else if (activeChat) {
+          setActiveChat(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeChat, showAddFriend]);
+
   // Subscribe to real-time chat list
   useEffect(() => {
     const unsubscribe = subscribeChats(currentUser.uid, (updatedChats) => {
@@ -633,13 +649,16 @@ export function ChatPane({
             const otherIsTyping = Boolean(activeChat.typing && activeChat.typing[otherUid]);
 
             return (
-              <div className="bg-[#121218] border-b border-white/10 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 flex items-center justify-between flex-shrink-0">
-                <div className="flex items-center gap-3">
+              <div className="bg-[#121218] border-b border-white/10 px-3.5 sm:px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 flex items-center justify-between flex-shrink-0 z-30 shadow-md">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {/* High visibility Back to Chats button */}
                   <button
                     onClick={() => setActiveChat(null)}
-                    className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/80 hover:text-white cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-white font-bold text-xs border border-white/15 cursor-pointer flex-shrink-0 transition-all shadow-sm"
+                    title="Leave chat and return to chats list"
                   >
-                    <ArrowLeft className="w-5 h-5" />
+                    <ArrowLeft className="w-4 h-4 stroke-[3]" />
+                    <span>Chats</span>
                   </button>
 
                   <img
@@ -648,12 +667,12 @@ export function ChatPane({
                       'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80'
                     }
                     alt={recipient.displayName}
-                    className="w-10 h-10 rounded-full object-cover"
+                    className="w-9 h-9 rounded-full object-cover border border-white/20 flex-shrink-0"
                   />
 
-                  <div>
-                    <h3 className="font-bold text-sm text-white">{recipient.displayName}</h3>
-                    <p className="text-xs text-white/40">
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-sm text-white truncate">{recipient.displayName}</h3>
+                    <p className="text-xs text-white/40 truncate">
                       {otherIsTyping ? (
                         <span className="text-purple-400 font-semibold animate-pulse">Typing...</span>
                       ) : (
@@ -663,13 +682,20 @@ export function ChatPane({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <button
                     onClick={() => onOpenCamera(recipient)}
-                    className="w-9 h-9 rounded-full bg-yellow-400/20 text-yellow-300 hover:bg-yellow-400/30 flex items-center justify-center cursor-pointer transition-colors"
+                    className="w-9 h-9 rounded-full bg-yellow-400/20 text-yellow-300 hover:bg-yellow-400/30 flex items-center justify-center cursor-pointer transition-colors shadow"
                     title="Send AR Snap"
                   >
                     <Camera className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setActiveChat(null)}
+                    className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/15 active:scale-95 text-white/70 hover:text-white text-xs font-semibold transition-colors cursor-pointer border border-white/10"
+                    title="Leave conversation"
+                  >
+                    Leave
                   </button>
                 </div>
               </div>
@@ -962,8 +988,19 @@ export function ChatPane({
 
       {/* Add Friend Modal */}
       {showAddFriend && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-[#16161e] border border-white/15 rounded-3xl p-5 sm:p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 max-h-[90vh] flex flex-col">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowAddFriend(false);
+              setFriendAddStatus(null);
+            }
+          }}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#16161e] border border-white/15 rounded-3xl p-5 sm:p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 max-h-[90vh] flex flex-col cursor-default"
+          >
             <div className="flex items-center justify-between pb-3 border-b border-white/10 flex-shrink-0">
               <h3 className="font-bold text-base flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-yellow-400" />
@@ -974,9 +1011,10 @@ export function ChatPane({
                   setShowAddFriend(false);
                   setFriendAddStatus(null);
                 }}
-                className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/70 hover:text-white"
+                className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/70 hover:text-white cursor-pointer active:scale-90 transition-transform"
+                title="Close"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -1119,6 +1157,21 @@ export function ChatPane({
                 </div>
               );
             })()}
+
+            {/* Bottom Done / Close Button */}
+            <div className="mt-3 pt-3 border-t border-white/10 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddFriend(false);
+                  setFriendAddStatus(null);
+                }}
+                className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 active:scale-98 text-white font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <X className="w-4 h-4" />
+                <span>Close Menu</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

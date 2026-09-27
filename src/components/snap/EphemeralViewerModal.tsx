@@ -163,10 +163,11 @@ export function EphemeralViewerModal({
 
             <button
               onClick={handleExpire}
-              className="w-8 h-8 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center text-white/80 hover:text-white cursor-pointer"
+              className="px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/25 flex items-center gap-1.5 text-white/90 hover:text-white active:scale-95 transition-transform cursor-pointer font-bold text-xs shadow-lg"
               title="Close viewer"
             >
               <X className="w-4 h-4" />
+              <span>Close</span>
             </button>
           </div>
         </div>

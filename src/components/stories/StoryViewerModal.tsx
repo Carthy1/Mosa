@@ -147,9 +147,11 @@ export function StoryViewerModal({
             )}
             <button
               onClick={onClose}
-              className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center text-white cursor-pointer"
+              className="px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/25 flex items-center gap-1.5 text-white active:scale-95 transition-transform cursor-pointer font-bold text-xs shadow-lg"
+              title="Close story"
             >
               <X className="w-4 h-4" />
+              <span>Close</span>
             </button>
           </div>
         </div>

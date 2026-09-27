@@ -188,9 +188,11 @@ export function SnapPreviewModal({
         <button
           onClick={onClose}
           disabled={isUploading}
-          className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center text-white active:scale-90 transition-transform cursor-pointer"
+          className="px-3.5 py-2 rounded-full bg-black/60 backdrop-blur-md border border-white/20 flex items-center gap-1.5 text-white active:scale-95 transition-transform cursor-pointer font-bold text-xs shadow-lg"
+          title="Discard snap and return to camera"
         >
-          <X className="w-5 h-5" />
+          <X className="w-4 h-4" />
+          <span>Discard</span>
         </button>
 
         <div className="flex items-center gap-3">
@@ -288,8 +290,16 @@ export function SnapPreviewModal({
 
       {/* Send To Drawer Modal */}
       {showSendDrawer && (
-        <div className="absolute inset-0 z-40 bg-black/70 backdrop-blur-md flex flex-col justify-end">
-          <div className="bg-[#121216] border-t border-white/15 rounded-t-3xl p-5 max-h-[85vh] flex flex-col animate-in slide-in-from-bottom duration-300">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowSendDrawer(false);
+          }}
+          className="absolute inset-0 z-40 bg-black/70 backdrop-blur-md flex flex-col justify-end cursor-pointer"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#121216] border-t border-white/15 rounded-t-3xl p-5 max-h-[85vh] flex flex-col animate-in slide-in-from-bottom duration-300 cursor-default"
+          >
             {/* Header */}
             <div className="flex items-center justify-between pb-4 border-b border-white/10">
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
@@ -297,9 +307,10 @@ export function SnapPreviewModal({
               </h3>
               <button
                 onClick={() => setShowSendDrawer(false)}
-                className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/70 hover:text-white cursor-pointer"
+                className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 active:scale-90 flex items-center justify-center text-white/70 hover:text-white cursor-pointer transition-transform"
+                title="Cancel"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -422,6 +433,15 @@ export function SnapPreviewModal({
                   <ArrowRight className="w-5 h-5" />
                 </>
               )}
+            </button>
+
+            {/* Back / Cancel Button */}
+            <button
+              type="button"
+              onClick={() => setShowSendDrawer(false)}
+              className="mt-2.5 w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 active:scale-98 text-white/70 hover:text-white font-semibold text-xs transition-colors cursor-pointer text-center"
+            >
+              Back to Editing
             </button>
           </div>
         </div>
