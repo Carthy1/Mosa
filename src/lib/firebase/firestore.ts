@@ -13,6 +13,7 @@ import {
   serverTimestamp,
   Timestamp,
   deleteDoc,
+  arrayUnion,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from './config';
 import { mockStore } from '../mock/mockStore';
@@ -377,6 +378,9 @@ export async function sendMessage(
             senderId: message.senderId,
             viewStatus: 'delivered',
             createdAt: now,
+            isReply: Boolean(message.replyTo),
+            replyToSenderId: message.replyTo?.senderId,
+            replyToSenderName: message.replyTo?.senderName,
           },
         },
         { merge: true }
@@ -393,12 +397,13 @@ export async function sendMessage(
 }
 
 /**
- * Marks an ephemeral snap message as viewed and triggers permanent deletion protocol.
+ * Marks an ephemeral snap message as viewed and triggers permanent deletion protocol (unless saved).
  */
 export async function markSnapViewed(
   chatId: string,
   messageId: string,
-  mediaUrl?: string
+  mediaUrl?: string,
+  isSaved?: boolean
 ): Promise<void> {
   // Always update locally first
   mockStore.markSnapViewed(chatId, messageId);
@@ -411,7 +416,17 @@ export async function markSnapViewed(
         viewedAt: serverTimestamp(),
       });
 
-      if (mediaUrl) {
+      // Update chat document lastMessage status
+      try {
+        const chatRef = doc(db, 'chats', chatId);
+        await updateDoc(chatRef, {
+          'lastMessage.viewStatus': 'viewed',
+          'lastMessage.viewedAt': serverTimestamp(),
+        });
+      } catch (e) {}
+
+      // Only purge if NOT explicitly saved by the user
+      if (mediaUrl && !isSaved) {
         fetch('/api/storage/purge-expired', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -420,6 +435,69 @@ export async function markSnapViewed(
       }
     } catch (e: any) {
       console.warn('Firestore markSnapViewed notice:', e?.message || e);
+    }
+  }
+}
+
+/**
+ * Marks text messages in a chat as read/viewed by the recipient.
+ */
+export async function markChatMessagesAsRead(
+  chatId: string,
+  readerUid: string
+): Promise<void> {
+  mockStore.markChatMessagesAsRead(chatId, readerUid);
+
+  if (isFirebaseConfigured && db) {
+    try {
+      const messagesRef = collection(db, 'chats', chatId, 'messages');
+      const q = query(messagesRef, where('viewStatus', '==', 'delivered'));
+      const snapshot = await getDocs(q);
+      const updates = snapshot.docs
+        .filter((d) => d.data().senderId !== readerUid && d.data().type === 'text')
+        .map((d) => updateDoc(d.ref, { viewStatus: 'viewed', viewedAt: serverTimestamp() }));
+      await Promise.all(updates);
+
+      // Update chat lastMessage
+      const chatRef = doc(db, 'chats', chatId);
+      await updateDoc(chatRef, {
+        'lastMessage.viewStatus': 'viewed',
+        'lastMessage.viewedAt': serverTimestamp(),
+      });
+    } catch (e: any) {
+      console.warn('Firestore markChatMessagesAsRead notice:', e?.message || e);
+    }
+  }
+}
+
+/**
+ * Saves a snap to the chat history and user's saved collection.
+ */
+export async function saveSnap(
+  chatId: string,
+  messageId: string,
+  savedByUid: string,
+  savedByName: string
+): Promise<void> {
+  mockStore.saveSnap(chatId, messageId, savedByUid, savedByName);
+
+  if (isFirebaseConfigured && db) {
+    try {
+      const msgRef = doc(db, 'chats', chatId, 'messages', messageId);
+      await updateDoc(msgRef, {
+        isSaved: true,
+        savedBy: arrayUnion(savedByUid),
+        savedByName,
+        savedAt: serverTimestamp(),
+      });
+
+      const chatRef = doc(db, 'chats', chatId);
+      await updateDoc(chatRef, {
+        'lastMessage.isSaved': true,
+        'lastMessage.savedByName': savedByName,
+      });
+    } catch (e: any) {
+      console.warn('Firestore saveSnap notice:', e?.message || e);
     }
   }
 }

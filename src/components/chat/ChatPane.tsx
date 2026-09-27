@@ -8,6 +8,7 @@ import {
   sendMessage,
   setTypingStatus,
   addFriend,
+  markChatMessagesAsRead,
 } from '@/lib/firebase/firestore';
 import { DEMO_FRIENDS, mockStore } from '@/lib/mock/mockStore';
 import { EphemeralViewerModal } from '../snap/EphemeralViewerModal';
@@ -26,6 +27,9 @@ import {
   Eye,
   X,
   CornerUpLeft,
+  Bookmark,
+  Download,
+  Check,
 } from 'lucide-react';
 
 interface ChatPaneProps {
@@ -59,6 +63,27 @@ export function ChatPane({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const formatReceiptTime = (timestamp?: number) => {
+    if (!timestamp) return '';
+    const diffSec = Math.floor((Date.now() - timestamp) / 1000);
+    if (diffSec < 60) return 'Just now';
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+    return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const handleDownloadMedia = (mediaUrl: string, type: string) => {
+    try {
+      const a = document.createElement('a');
+      a.href = mediaUrl;
+      a.download = `mosa_snap_${Date.now()}.${type === 'video' ? 'webm' : 'jpg'}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (e) {
+      console.warn('Failed to download media:', e);
+    }
+  };
+
   const handleStartReply = (msg: Message) => {
     setReplyingTo(msg);
     inputRef.current?.focus();
@@ -86,19 +111,22 @@ export function ChatPane({
     return () => unsubscribe();
   }, [currentUser.uid]);
 
-  // Subscribe to active chat messages
+  // Subscribe to active chat messages & immediately mark incoming as viewed
   useEffect(() => {
     if (!activeChat) {
       setMessages([]);
       return;
     }
 
+    markChatMessagesAsRead(activeChat.id, currentUser.uid);
+
     const unsubscribe = subscribeMessages(activeChat.id, (msgs) => {
       setMessages(msgs);
+      markChatMessagesAsRead(activeChat.id, currentUser.uid);
     });
 
     return () => unsubscribe();
-  }, [activeChat]);
+  }, [activeChat, currentUser.uid]);
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -172,6 +200,7 @@ export function ChatPane({
       ? {
           messageId: replyingTo.id,
           senderName: replyingTo.senderName || (replyingTo.senderId === currentUser.uid ? 'You' : 'Friend'),
+          senderId: replyingTo.senderId,
           content: replyingTo.type === 'text' ? replyingTo.content : `[${replyingTo.type.toUpperCase()} SNAP]`,
           type: replyingTo.type,
         }
@@ -210,6 +239,8 @@ export function ChatPane({
       const otherUid = recipient.uid;
       const targetChatId = activeChat.id;
       setTimeout(() => {
+        // Friend views your message (triggers "Seen" read receipt)
+        markChatMessagesAsRead(targetChatId, otherUid);
         setTypingStatus(targetChatId, otherUid, true);
         setTimeout(async () => {
           setTypingStatus(targetChatId, otherUid, false);
@@ -225,6 +256,13 @@ export function ChatPane({
             senderName: recipient.displayName,
             type: 'text',
             content: randomReply,
+            replyTo: {
+              messageId: sent.id,
+              senderId: currentUser.uid,
+              senderName: currentUser.displayName,
+              content: sent.content,
+              type: sent.type,
+            },
           });
         }, 1800);
       }, 900);
@@ -363,11 +401,18 @@ export function ChatPane({
               chats.map((chat) => {
                 const recipient = getRecipient(chat);
                 const lastMsg = chat.lastMessage;
+                const isSentByMe = Boolean(lastMsg && lastMsg.senderId === currentUser.uid);
+                const isRepliedToMe = Boolean(
+                  lastMsg &&
+                  !isSentByMe &&
+                  lastMsg.isReply &&
+                  lastMsg.replyToSenderId === currentUser.uid
+                );
                 const isUnopenedSnap =
                   lastMsg &&
                   (lastMsg.type === 'image' || lastMsg.type === 'video') &&
                   lastMsg.viewStatus === 'delivered' &&
-                  lastMsg.senderId !== currentUser.uid;
+                  !isSentByMe;
 
                 // Check other user typing indicator
                 const otherUid = recipient.uid;
@@ -411,11 +456,54 @@ export function ChatPane({
                             <span className="w-2.5 h-2.5 rounded-sm bg-red-500 animate-pulse shadow-sm shadow-red-500" />
                             <span>New {lastMsg.type.toUpperCase()} Snap • Tap to view</span>
                           </p>
+                        ) : isRepliedToMe ? (
+                          <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-purple-500/25 text-purple-300 font-bold text-[10px] border border-purple-500/40 flex-shrink-0">
+                              <CornerUpLeft className="w-2.5 h-2.5 stroke-[2.5]" />
+                              Replied to you
+                            </span>
+                            <span className="text-xs text-white/70 truncate">{lastMsg.content}</span>
+                          </div>
+                        ) : isSentByMe && lastMsg ? (
+                          lastMsg.type === 'text' ? (
+                            lastMsg.viewStatus === 'viewed' ? (
+                              <p className="text-xs text-sky-400 font-medium flex items-center gap-1 mt-0.5 truncate">
+                                <CheckCheck className="w-3.5 h-3.5 stroke-[2.5] flex-shrink-0" />
+                                <span>Seen · {formatReceiptTime(lastMsg.viewedAt || lastMsg.createdAt)}</span>
+                              </p>
+                            ) : (
+                              <p className="text-xs text-white/50 flex items-center gap-1 mt-0.5 truncate">
+                                <CheckCheck className="w-3.5 h-3.5 opacity-40 flex-shrink-0" />
+                                <span>Delivered</span>
+                                <span className="text-white/30 truncate ml-1">"{lastMsg.content}"</span>
+                              </p>
+                            )
+                          ) : lastMsg.isSaved ? (
+                            <p className="text-xs text-amber-400 font-bold flex items-center gap-1 mt-0.5 truncate">
+                              <Bookmark className="w-3 h-3 fill-amber-400 flex-shrink-0" />
+                              <span>Saved snap by {lastMsg.savedByName || recipient.displayName.split(' ')[0]}</span>
+                            </p>
+                          ) : lastMsg.viewStatus === 'viewed' ? (
+                            <p className="text-xs text-white/40 flex items-center gap-1 mt-0.5 truncate">
+                              <Square className="w-2.5 h-2.5 stroke-[2] flex-shrink-0" />
+                              <span>Opened snap · {formatReceiptTime(lastMsg.viewedAt || lastMsg.createdAt)}</span>
+                            </p>
+                          ) : (
+                            <p className="text-xs text-rose-400 font-semibold flex items-center gap-1 mt-0.5 truncate">
+                              <Flame className="w-3 h-3 fill-rose-400 flex-shrink-0" />
+                              <span>Delivered {lastMsg.type.toUpperCase()} Snap</span>
+                            </p>
+                          )
                         ) : (
                           <p className="text-xs text-white/50 truncate mt-0.5">
                             {lastMsg ? (
                               lastMsg.type === 'text' ? (
                                 lastMsg.content
+                              ) : lastMsg.isSaved ? (
+                                <span className="text-amber-400 font-medium flex items-center gap-1">
+                                  <Bookmark className="w-2.5 h-2.5 fill-amber-400" />
+                                  Saved snap
+                                </span>
                               ) : lastMsg.viewStatus === 'viewed' ? (
                                 <span className="text-white/40 flex items-center gap-1">
                                   <Square className="w-2.5 h-2.5 stroke-[2] fill-transparent inline" />
@@ -438,6 +526,9 @@ export function ChatPane({
                       </span>
                       {isUnopenedSnap && (
                         <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 shadow-md shadow-yellow-400/50" />
+                      )}
+                      {isRepliedToMe && (
+                        <span className="w-2 h-2 rounded-full bg-purple-400 shadow-sm shadow-purple-400/50" />
                       )}
                     </div>
                   </div>
@@ -541,7 +632,7 @@ export function ChatPane({
 
                         <div
                           onClick={() => {
-                            if (msg.viewStatus !== 'viewed') {
+                            if (msg.viewStatus !== 'viewed' || msg.isSaved) {
                               setViewingSnap({
                                 message: msg,
                                 senderName: msg.senderName || (isMe ? 'Me' : 'Friend'),
@@ -549,35 +640,72 @@ export function ChatPane({
                             }
                           }}
                           className={`p-3.5 rounded-2xl flex items-center gap-3 transition-all ${
-                            msg.viewStatus === 'viewed'
+                            msg.isSaved
+                              ? 'bg-gradient-to-r from-amber-950/40 via-yellow-950/20 to-amber-900/40 border border-amber-400/40 text-amber-100 cursor-pointer shadow-md shadow-amber-500/10 hover:scale-102 active:scale-98'
+                              : msg.viewStatus === 'viewed'
                               ? 'bg-white/5 border border-white/10 text-white/40 cursor-default'
+                              : isMe
+                              ? 'bg-gradient-to-r from-purple-900/50 to-indigo-900/50 border border-purple-500/30 text-white cursor-default'
                               : 'bg-gradient-to-r from-red-600 to-rose-600 text-white cursor-pointer hover:scale-102 shadow-lg shadow-red-600/30 active:scale-98'
                           }`}
                         >
                           <div
-                            className={`w-9 h-9 rounded-xl flex items-center justify-center ${
-                              msg.viewStatus === 'viewed' ? 'bg-white/5' : 'bg-white/20'
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                              msg.isSaved
+                                ? 'bg-amber-400/20 text-amber-300'
+                                : msg.viewStatus === 'viewed'
+                                ? 'bg-white/5'
+                                : 'bg-white/20'
                             }`}
                           >
-                            {msg.viewStatus === 'viewed' ? (
+                            {msg.isSaved ? (
+                              <Bookmark className="w-5 h-5 fill-amber-400 text-amber-400" />
+                            ) : msg.viewStatus === 'viewed' ? (
                               <Square className="w-4 h-4 stroke-[2.5]" />
                             ) : (
                               <Flame className="w-5 h-5 fill-current animate-pulse text-yellow-300" />
                             )}
                           </div>
 
-                          <div>
-                            <p className="text-xs font-bold">
-                              {msg.viewStatus === 'viewed'
-                                ? 'Opened Snap (Expired)'
-                                : `${msg.type.toUpperCase()} Snap (${msg.duration || 10}s)`}
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold truncate">
+                              {msg.isSaved
+                                ? `Saved ${msg.type.toUpperCase()} Snap`
+                                : msg.viewStatus === 'viewed'
+                                ? isMe
+                                  ? 'Opened Snap'
+                                  : 'Opened Snap (Expired)'
+                                : isMe
+                                ? `Delivered ${msg.type.toUpperCase()} Snap (${msg.duration || 10}s)`
+                                : `New ${msg.type.toUpperCase()} Snap (${msg.duration || 10}s)`}
                             </p>
-                            <p className="text-[10px] opacity-80">
-                              {msg.viewStatus === 'viewed'
-                                ? 'Purged from storage'
+                            <p className="text-[10px] opacity-80 truncate">
+                              {msg.isSaved
+                                ? `Saved in chat by ${msg.savedByName || (isMe ? 'You' : 'Friend')} • Tap to replay`
+                                : msg.viewStatus === 'viewed'
+                                ? isMe
+                                  ? `Opened by ${recipient.displayName} · ${formatReceiptTime(msg.viewedAt || msg.createdAt)}`
+                                  : 'Purged from storage'
+                                : isMe
+                                ? `Waiting for ${recipient.displayName} to open`
                                 : 'Tap to view before it vanishes'}
                             </p>
                           </div>
+
+                          {/* Quick Download icon if snap is saved */}
+                          {msg.isSaved && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDownloadMedia(msg.content, msg.type);
+                              }}
+                              className="ml-auto p-1.5 rounded-lg bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 transition-colors"
+                              title="Download snap file"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     ) : (
@@ -601,9 +729,19 @@ export function ChatPane({
                           className={`w-full px-4 py-2.5 rounded-2xl text-sm shadow-md transition-all select-text ${
                             isMe
                               ? 'bg-purple-600 text-white rounded-br-none'
+                              : !isMe && msg.replyTo && msg.replyTo.senderId === currentUser.uid
+                              ? 'bg-[#1e1b2e] border-l-4 border-yellow-400 text-white rounded-bl-none shadow-yellow-500/10'
                               : 'bg-white/10 text-white/90 rounded-bl-none'
                           }`}
                         >
+                          {/* Replied to You notification badge on incoming message */}
+                          {!isMe && msg.replyTo && msg.replyTo.senderId === currentUser.uid && (
+                            <div className="flex items-center gap-1 text-[10px] text-yellow-300 font-extrabold mb-1.5">
+                              <CornerUpLeft className="w-3 h-3 stroke-[3]" />
+                              <span>Replied to your {msg.replyTo.type === 'text' ? 'message' : 'snap'}</span>
+                            </div>
+                          )}
+
                           {/* Quoted Parent Message (Clickable to jump) */}
                           {msg.replyTo && (
                             <div
@@ -611,13 +749,17 @@ export function ChatPane({
                               className={`mb-2 px-3 py-1.5 rounded-xl text-xs border-l-2 cursor-pointer transition-all ${
                                 isMe
                                   ? 'bg-purple-700/70 border-yellow-300 text-purple-100 hover:bg-purple-700'
-                                  : 'bg-black/30 border-purple-400 text-white/80 hover:bg-black/50'
+                                  : 'bg-black/40 border-purple-400 text-white/90 hover:bg-black/60'
                               }`}
                               title="Click to jump to quoted message"
                             >
                               <div className="font-bold text-[10px] text-yellow-300 flex items-center gap-1">
                                 <CornerUpLeft className="w-2.5 h-2.5" />
-                                <span>{msg.replyTo.senderName}</span>
+                                <span>
+                                  {msg.replyTo.senderId === currentUser.uid
+                                    ? 'You'
+                                    : msg.replyTo.senderName || 'Friend'}
+                                </span>
                               </div>
                               <p className="truncate text-[11px] opacity-85 mt-0.5">
                                 {msg.replyTo.content}
@@ -626,9 +768,29 @@ export function ChatPane({
                           )}
 
                           <p className="break-words leading-relaxed">{msg.content}</p>
-                          <span className="text-[9px] text-white/50 block text-right mt-1 font-mono">
-                            {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
+
+                          {/* Timestamp and Read Status Receipt */}
+                          <div className="flex items-center justify-end gap-1.5 mt-1 font-mono text-[9px]">
+                            <span className="text-white/50">
+                              {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            {isMe && (
+                              msg.viewStatus === 'viewed' ? (
+                                <span
+                                  className="inline-flex items-center gap-0.5 text-sky-300 font-semibold"
+                                  title={`Seen ${msg.viewedAt ? new Date(msg.viewedAt).toLocaleTimeString() : ''}`}
+                                >
+                                  <CheckCheck className="w-3 h-3 stroke-[2.5]" />
+                                  <span>Seen {formatReceiptTime(msg.viewedAt || msg.createdAt)}</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-0.5 text-white/40" title="Delivered">
+                                  <CheckCheck className="w-3 h-3 opacity-60" />
+                                  <span>Delivered</span>
+                                </span>
+                              )
+                            )}
+                          </div>
                         </div>
                       </div>
                     )}
@@ -707,6 +869,7 @@ export function ChatPane({
           message={viewingSnap.message}
           chatId={activeChat.id}
           senderName={viewingSnap.senderName}
+          currentUser={currentUser}
           onClose={() => setViewingSnap(null)}
         />
       )}

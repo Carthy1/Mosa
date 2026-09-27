@@ -16,6 +16,7 @@ export type SnapViewStatus = 'delivered' | 'viewed' | 'opened';
 export interface ReplyTo {
   messageId: string;
   senderName: string;
+  senderId?: string;
   content: string;
   type: SnapMediaType;
 }
@@ -31,6 +32,10 @@ export interface Message {
   createdAt: number;
   viewedAt?: number;
   replyTo?: ReplyTo;
+  isSaved?: boolean;
+  savedBy?: string[];
+  savedByName?: string;
+  savedAt?: number;
 }
 
 export interface Chat {
@@ -43,6 +48,12 @@ export interface Chat {
     senderId: string;
     createdAt: number;
     viewStatus?: SnapViewStatus;
+    viewedAt?: number;
+    isReply?: boolean;
+    replyToSenderId?: string;
+    replyToSenderName?: string;
+    isSaved?: boolean;
+    savedByName?: string;
   };
   typing?: Record<string, boolean>; // { [uid]: boolean }
   updatedAt: number;
