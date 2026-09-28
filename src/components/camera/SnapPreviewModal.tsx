@@ -200,8 +200,8 @@ export function SnapPreviewModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-between text-white overflow-hidden select-none">
-      {/* Background Media Preview */}
-      <div className="absolute inset-0 flex items-center justify-center bg-black">
+      {/* Background Media Preview - object-contain preserves exact capture aspect without zooming or enlarging */}
+      <div className="absolute inset-0 flex items-center justify-center bg-black p-0 overflow-hidden">
         {mediaType === 'video' ? (
           <video
             src={mediaUrl}
@@ -209,13 +209,13 @@ export function SnapPreviewModal({
             loop
             playsInline
             muted
-            className="w-full h-full object-cover"
+            className="max-w-full max-h-full w-auto h-auto object-contain select-none"
           />
         ) : (
           <img
             src={mediaUrl}
             alt="Snap Preview"
-            className="w-full h-full object-cover"
+            className="max-w-full max-h-full w-auto h-auto object-contain select-none"
             onError={(e) => {
               console.warn('Image preview failed to load:', mediaUrl?.slice(0, 50));
             }}

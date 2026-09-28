@@ -14,6 +14,7 @@ import {
   Timestamp,
   deleteDoc,
   arrayUnion,
+  writeBatch,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from './config';
 import { mockStore, DEFAULT_USER, DEMO_FRIENDS } from '../mock/mockStore';
@@ -75,6 +76,195 @@ export function formatReceiptTime(val: any): string {
   const d = new Date(ms);
   if (isNaN(d.getTime())) return '';
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * Evaluates whether a user is currently online based on isOnline flag and recent heartbeat (<75 seconds).
+ */
+export function isUserCurrentlyOnline(profile?: { isOnline?: boolean; lastSeen?: any } | null): boolean {
+  if (!profile) return false;
+  if (!profile.isOnline) return false;
+  if (!profile.lastSeen) return true;
+  const ms = toTimestampMillis(profile.lastSeen);
+  return Date.now() - ms < 75000;
+}
+
+/**
+ * Formats a user's presence / last seen timestamp into human-friendly representation.
+ * Example: 'Online', 'Last seen just now', 'Last seen 5m ago', 'Last seen today at 2:30 PM'
+ */
+export function formatLastSeen(lastSeen?: any, isOnline?: boolean): string {
+  if (isUserCurrentlyOnline({ isOnline, lastSeen })) {
+    return 'Online';
+  }
+  if (!lastSeen) {
+    return 'Offline';
+  }
+
+  const ms = toTimestampMillis(lastSeen);
+  const now = Date.now();
+  const diffSec = Math.floor((now - ms) / 1000);
+
+  if (diffSec < 60) return 'Last seen just now';
+  if (diffSec < 3600) return `Last seen ${Math.floor(diffSec / 60)}m ago`;
+
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return 'Offline';
+
+  const nowDate = new Date(now);
+  const isToday =
+    d.getDate() === nowDate.getDate() &&
+    d.getMonth() === nowDate.getMonth() &&
+    d.getFullYear() === nowDate.getFullYear();
+
+  const timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+  if (isToday) {
+    return `Last seen today at ${timeStr}`;
+  }
+
+  const yesterdayDate = new Date(now - 86400000);
+  const isYesterday =
+    d.getDate() === yesterdayDate.getDate() &&
+    d.getMonth() === yesterdayDate.getMonth() &&
+    d.getFullYear() === yesterdayDate.getFullYear();
+
+  if (isYesterday) {
+    return `Last seen yesterday at ${timeStr}`;
+  }
+
+  if (d.getFullYear() === nowDate.getFullYear()) {
+    return `Last seen ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${timeStr}`;
+  }
+
+  return `Last seen ${d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`;
+}
+
+/**
+ * Sets current user's online presence status and updates heartbeat lastSeen timestamp.
+ */
+export async function setUserOnlineStatus(uid: string, isOnline: boolean): Promise<void> {
+  if (!uid) return;
+  mockStore.setUserOnlineStatus(uid, isOnline);
+
+  if (isFirebaseConfigured && db && !uid.startsWith('user_')) {
+    try {
+      const userRef = doc(db, 'users', uid);
+      await setDoc(
+        userRef,
+        {
+          isOnline,
+          lastSeen: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch (e: any) {
+      console.warn('Firestore setUserOnlineStatus notice:', e?.message || e);
+    }
+  }
+}
+
+/**
+ * Subscribes to a single user's profile and presence in real-time.
+ */
+export function subscribeUserProfile(
+  uid: string,
+  callback: (profile: UserProfile | null) => void
+): () => void {
+  getUserProfile(uid).then((p) => {
+    if (p) callback(p);
+  });
+
+  const unsubMock = mockStore.subscribe(() => {
+    const p = mockStore.getUser(uid);
+    if (p) callback(p);
+  });
+
+  let unsubFirestore: (() => void) | null = null;
+  if (isFirebaseConfigured && db && !uid.startsWith('user_')) {
+    try {
+      unsubFirestore = onSnapshot(
+        doc(db, 'users', uid),
+        (snap) => {
+          if (snap.exists()) {
+            const data = snap.data() as UserProfile;
+            if (data) {
+              mockStore.saveUser(data);
+              callback(data);
+            }
+          }
+        },
+        (err) => console.warn('Firestore user profile listener notice:', err)
+      );
+    } catch (e) {}
+  }
+
+  return () => {
+    unsubMock();
+    if (unsubFirestore) {
+      try {
+        unsubFirestore();
+      } catch (e) {}
+    }
+  };
+}
+
+/**
+ * Real-time listener for presence map of all users.
+ */
+export function subscribeUsersPresence(
+  callback: (presenceMap: Record<string, { isOnline: boolean; lastSeen: number }>) => void
+): () => void {
+  const getMap = async () => {
+    const all = await getAllUsers();
+    const map: Record<string, { isOnline: boolean; lastSeen: number }> = {};
+    all.forEach((u) => {
+      map[u.uid] = {
+        isOnline: Boolean(u.isOnline),
+        lastSeen: toTimestampMillis(u.lastSeen),
+      };
+    });
+    return map;
+  };
+
+  getMap().then(callback);
+
+  const unsubMock = mockStore.subscribe(async () => {
+    const map = await getMap();
+    callback(map);
+  });
+
+  let unsubFirestore: (() => void) | null = null;
+  if (isFirebaseConfigured && db) {
+    try {
+      unsubFirestore = onSnapshot(
+        collection(db, 'users'),
+        (snapshot) => {
+          const map: Record<string, { isOnline: boolean; lastSeen: number }> = {};
+          snapshot.forEach((d) => {
+            const data = d.data() as UserProfile;
+            if (data && data.uid) {
+              map[data.uid] = {
+                isOnline: Boolean(data.isOnline),
+                lastSeen: toTimestampMillis(data.lastSeen),
+              };
+            }
+          });
+          callback(map);
+        },
+        (err) => console.warn('Firestore users presence notice:', err)
+      );
+    } catch (e) {}
+  }
+
+  return () => {
+    unsubMock();
+    if (unsubFirestore) {
+      try {
+        unsubFirestore();
+      } catch (e) {}
+    }
+  };
 }
 
 export async function getUserProfile(uid: string): Promise<UserProfile | null> {
@@ -725,10 +915,7 @@ export async function sendMessage(
   if (isFirebaseConfigured && db) {
     try {
       const messagesRef = collection(db, 'chats', chatId, 'messages');
-      const docRef = await addDoc(messagesRef, {
-        ...msgData,
-        createdAt: serverTimestamp(),
-      });
+      const docRef = doc(messagesRef);
 
       const recipientUid = typeof recipient === 'string' ? recipient : recipient?.uid;
       const participantUids = [message.senderId];
@@ -769,7 +956,14 @@ export async function sendMessage(
         };
       }
 
-      await setDoc(doc(db, 'chats', chatId), chatUpdate, { merge: true });
+      // Atomically commit both message doc and chat update in a single batch
+      const batch = writeBatch(db);
+      batch.set(docRef, {
+        ...msgData,
+        createdAt: serverTimestamp(),
+      });
+      batch.set(doc(db, 'chats', chatId), chatUpdate, { merge: true });
+      await batch.commit();
 
       return { id: docRef.id, ...msgData };
     } catch (e: any) {
@@ -840,44 +1034,93 @@ export async function markSnapViewed(
  */
 export async function markChatMessagesAsRead(
   chatId: string,
-  readerUid: string
+  readerUid: string,
+  messageIds?: string[]
 ): Promise<void> {
   mockStore.markChatMessagesAsRead(chatId, readerUid);
 
   if (isFirebaseConfigured && db) {
     try {
       const messagesRef = collection(db, 'chats', chatId, 'messages');
-      // Only fetch unread messages sent by the other user (senderId != readerUid)
-      const q = query(
-        messagesRef,
-        where('viewStatus', '==', 'delivered'),
-        where('senderId', '!=', readerUid)
-      );
-      const snapshot = await getDocs(q);
+      let textDocsToUpdate: Array<{ id: string; ref: any }> = [];
 
-      const textDocsToUpdate = snapshot.docs.filter((d) => d.data().type === 'text');
-      if (textDocsToUpdate.length === 0) {
-        // Nothing incoming to mark as read! DO NOT overwrite lastMessage!
-        return;
+      if (messageIds && messageIds.length > 0) {
+        textDocsToUpdate = messageIds.map((id) => ({
+          id,
+          ref: doc(db, 'chats', chatId, 'messages', id),
+        }));
+      } else {
+        // Query only with equality on viewStatus so no composite index is required in Firestore
+        const q = query(
+          messagesRef,
+          where('viewStatus', '==', 'delivered')
+        );
+        const snapshot = await getDocs(q);
+        textDocsToUpdate = snapshot.docs
+          .filter((d) => {
+            const data = d.data();
+            return data.senderId !== readerUid && (data.type === 'text' || !data.type);
+          })
+          .map((d) => ({ id: d.id, ref: d.ref }));
+
+        // Comprehensive sweep: if delivered query returned 0, check all messages in chat for any delivered/unviewed
+        if (textDocsToUpdate.length === 0) {
+          try {
+            const allSnap = await getDocs(messagesRef);
+            textDocsToUpdate = allSnap.docs
+              .filter((d) => {
+                const data = d.data();
+                return data.senderId !== readerUid && data.viewStatus !== 'viewed' && (data.type === 'text' || !data.type);
+              })
+              .map((d) => ({ id: d.id, ref: d.ref }));
+          } catch (sweepErr) {
+            console.warn('Fallback messages sweep notice:', sweepErr);
+          }
+        }
       }
 
-      const updates = textDocsToUpdate.map((d) =>
-        updateDoc(d.ref, { viewStatus: 'viewed', viewedAt: serverTimestamp() })
-      );
-      await Promise.all(updates);
+      if (textDocsToUpdate.length > 0) {
+        const now = serverTimestamp();
+        const batch = writeBatch(db);
+        textDocsToUpdate.slice(0, 450).forEach((d) => {
+          batch.update(d.ref, { viewStatus: 'viewed', viewedAt: now });
+        });
 
-      // Only update chat lastMessage if it was sent by someone other than readerUid and is a text message
-      const chatRef = doc(db, 'chats', chatId);
-      const chatSnap = await getDoc(chatRef);
-      if (chatSnap.exists()) {
-        const cData = chatSnap.data();
-        const lastMsg = cData.lastMessage;
-        if (lastMsg && lastMsg.senderId !== readerUid && lastMsg.type === 'text') {
-          await updateDoc(chatRef, {
-            'lastMessage.viewStatus': 'viewed',
-            'lastMessage.viewedAt': serverTimestamp(),
-          });
+        // Safely check and update chat header in the same atomic batch
+        try {
+          const chatRef = doc(db, 'chats', chatId);
+          const chatSnap = await getDoc(chatRef);
+          if (chatSnap.exists()) {
+            const cData = chatSnap.data();
+            const lastMsg = cData.lastMessage;
+            if (lastMsg && (lastMsg.senderId !== readerUid || textDocsToUpdate.some((d) => d.id === lastMsg.id))) {
+              batch.update(chatRef, {
+                'lastMessage.viewStatus': 'viewed',
+                'lastMessage.viewedAt': now,
+              });
+            }
+          }
+        } catch (chatHeaderErr) {
+          console.warn('Chat header update notice in markRead:', chatHeaderErr);
         }
+
+        await batch.commit();
+      } else {
+        // Fallback: If no message docs array provided, ensure chat lastMessage is updated
+        try {
+          const chatRef = doc(db, 'chats', chatId);
+          const chatSnap = await getDoc(chatRef);
+          if (chatSnap.exists()) {
+            const cData = chatSnap.data();
+            const lastMsg = cData.lastMessage;
+            if (lastMsg && lastMsg.senderId !== readerUid && lastMsg.viewStatus !== 'viewed') {
+              await updateDoc(chatRef, {
+                'lastMessage.viewStatus': 'viewed',
+                'lastMessage.viewedAt': serverTimestamp(),
+              });
+            }
+          }
+        } catch (e) {}
       }
     } catch (e: any) {
       console.warn('Firestore markChatMessagesAsRead notice:', e?.message || e);

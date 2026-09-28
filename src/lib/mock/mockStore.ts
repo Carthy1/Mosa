@@ -10,6 +10,8 @@ export const DEFAULT_USER: UserProfile = {
   friends: ['user_elena', 'user_alex', 'user_sarah'],
   streak: 14,
   createdAt: Date.now() - 30 * 86400000,
+  isOnline: true,
+  lastSeen: Date.now(),
 };
 
 export const DEMO_FRIENDS: Record<string, UserProfile> = {
@@ -21,6 +23,8 @@ export const DEMO_FRIENDS: Record<string, UserProfile> = {
     friends: ['user_maccarthy'],
     streak: 21,
     createdAt: Date.now() - 40 * 86400000,
+    isOnline: true,
+    lastSeen: Date.now(),
   },
   user_alex: {
     uid: 'user_alex',
@@ -30,6 +34,8 @@ export const DEMO_FRIENDS: Record<string, UserProfile> = {
     friends: ['user_maccarthy'],
     streak: 8,
     createdAt: Date.now() - 25 * 86400000,
+    isOnline: false,
+    lastSeen: Date.now() - 14 * 60 * 1000, // 14 mins ago
   },
   user_sarah: {
     uid: 'user_sarah',
@@ -39,6 +45,8 @@ export const DEMO_FRIENDS: Record<string, UserProfile> = {
     friends: ['user_maccarthy'],
     streak: 5,
     createdAt: Date.now() - 15 * 86400000,
+    isOnline: false,
+    lastSeen: Date.now() - 3 * 3600 * 1000, // 3 hours ago
   },
 };
 
@@ -185,6 +193,18 @@ class MockDatabase {
   private listeners: Set<() => void> = new Set();
 
   constructor() {
+    this.load();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', (e) => {
+        if (e.key && e.key.startsWith('ephemeral_')) {
+          this.load();
+          this.notify();
+        }
+      });
+    }
+  }
+
+  private load() {
     if (typeof window !== 'undefined') {
       try {
         const savedStories = localStorage.getItem('ephemeral_stories');
@@ -591,7 +611,7 @@ class MockDatabase {
     let changed = false;
     if (list) {
       list.forEach((msg) => {
-        if (msg.senderId !== readerUid && msg.viewStatus !== 'viewed' && msg.type === 'text') {
+        if (msg.senderId !== readerUid && msg.viewStatus !== 'viewed' && (msg.type === 'text' || !msg.type)) {
           msg.viewStatus = 'viewed';
           msg.viewedAt = Date.now();
           changed = true;
@@ -635,6 +655,20 @@ class MockDatabase {
       chat.typing[uid] = isTyping;
       this.notify();
     }
+  }
+
+  setUserOnlineStatus(uid: string, isOnline: boolean) {
+    const now = Date.now();
+    if (this.users[uid]) {
+      this.users[uid].isOnline = isOnline;
+      this.users[uid].lastSeen = now;
+    }
+    if (DEMO_FRIENDS[uid]) {
+      DEMO_FRIENDS[uid].isOnline = isOnline;
+      DEMO_FRIENDS[uid].lastSeen = now;
+    }
+    this.save();
+    this.notify();
   }
 
   // Clear data / reset for QA testing

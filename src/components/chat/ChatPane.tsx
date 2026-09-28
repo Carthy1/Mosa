@@ -14,6 +14,10 @@ import {
   subscribeAllUsers,
   formatChatTime,
   formatReceiptTime,
+  formatLastSeen,
+  isUserCurrentlyOnline,
+  subscribeUserProfile,
+  subscribeUsersPresence,
   toTimestampMillis,
 } from '@/lib/firebase/firestore';
 import { DEMO_FRIENDS, mockStore } from '@/lib/mock/mockStore';
@@ -82,6 +86,33 @@ export function ChatPane({
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [chatMediaToPreview, setChatMediaToPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const [presenceMap, setPresenceMap] = useState<Record<string, { isOnline: boolean; lastSeen: number }>>({});
+  const [activePartnerProfile, setActivePartnerProfile] = useState<UserProfile | null>(null);
+
+  // Real-time listener for community presence map (online indicators and last seen across all friends/chats)
+  useEffect(() => {
+    const unsubscribe = subscribeUsersPresence((newPresenceMap) => {
+      setPresenceMap(newPresenceMap);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Real-time listener for active chat partner's detailed profile and presence
+  useEffect(() => {
+    if (!activeChat) {
+      setActivePartnerProfile(null);
+      return;
+    }
+    const otherUid = activeChat.participants.find((id) => id !== currentUser.uid) || activeChat.participants[0];
+    if (!otherUid) return;
+
+    const unsubscribe = subscribeUserProfile(otherUid, (profile) => {
+      if (profile) {
+        setActivePartnerProfile(profile);
+      }
+    });
+    return () => unsubscribe();
+  }, [activeChat?.id, currentUser.uid]);
 
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>('default');
   const [showNotifBanner, setShowNotifBanner] = useState(true);
@@ -235,15 +266,32 @@ export function ChatPane({
 
     const unsubscribe = subscribeMessages(activeChat.id, (msgs) => {
       setMessages(msgs);
-      const hasUnreadIncoming = msgs.some(
-        (m) => m.senderId !== currentUser.uid && m.viewStatus === 'delivered' && m.type === 'text'
+      const unreadIncoming = msgs.filter(
+        (m) => m.senderId !== currentUser.uid && m.viewStatus !== 'viewed' && (m.type === 'text' || !m.type)
       );
-      if (hasUnreadIncoming) {
-        markChatMessagesAsRead(activeChat.id, currentUser.uid);
+      if (unreadIncoming.length > 0) {
+        const unreadIds = unreadIncoming.map((m) => m.id);
+        markChatMessagesAsRead(activeChat.id, currentUser.uid, unreadIds);
       }
     });
 
     return () => unsubscribe();
+  }, [activeChat?.id, currentUser.uid]);
+
+  // Mark messages as read when window gains focus or tab becomes visible
+  useEffect(() => {
+    const handleFocusOrVisibility = () => {
+      if (document.visibilityState === 'visible' && activeChat) {
+        markChatMessagesAsRead(activeChat.id, currentUser.uid);
+      }
+    };
+
+    window.addEventListener('focus', handleFocusOrVisibility);
+    document.addEventListener('visibilitychange', handleFocusOrVisibility);
+    return () => {
+      window.removeEventListener('focus', handleFocusOrVisibility);
+      document.removeEventListener('visibilitychange', handleFocusOrVisibility);
+    };
   }, [activeChat?.id, currentUser.uid]);
 
   // Auto-scroll chat container to bottom without scrolling window (guarantees header remains visible on iOS)
@@ -266,30 +314,52 @@ export function ChatPane({
   // Get recipient profile for a chat
   const getRecipient = (chat: Chat): UserProfile => {
     const otherUid = chat.participants.find((id) => id !== currentUser.uid) || chat.participants[0] || 'unknown';
+    const presence = presenceMap[otherUid];
+    const partner = activePartnerProfile?.uid === otherUid ? activePartnerProfile : null;
 
     // 1. Check if recipient profile exists on chat document
     const details = chat.participantProfiles?.[otherUid] || chat.participantDetails?.[otherUid];
     if (details) {
       return {
         uid: otherUid,
-        displayName: details.displayName || (details.username ? `@${details.username}` : 'User'),
-        username: details.username || otherUid.toLowerCase(),
-        photoURL: details.photoURL || undefined,
+        displayName: partner?.displayName || details.displayName || (details.username ? `@${details.username}` : 'User'),
+        username: partner?.username || details.username || otherUid.toLowerCase(),
+        photoURL: partner?.photoURL || details.photoURL || undefined,
         friends: [],
         createdAt: Date.now(),
+        isOnline: partner?.isOnline ?? presence?.isOnline,
+        lastSeen: partner?.lastSeen ?? presence?.lastSeen,
       };
     }
 
     // 2. Check in friends array
     const friend = friends.find((f) => f.uid === otherUid);
-    if (friend) return friend;
+    if (friend) {
+      return {
+        ...friend,
+        isOnline: partner?.isOnline ?? presence?.isOnline ?? friend.isOnline,
+        lastSeen: partner?.lastSeen ?? presence?.lastSeen ?? friend.lastSeen,
+      };
+    }
 
     // 3. Check in communityUsers
     const commUser = communityUsers.find((u) => u.uid === otherUid);
-    if (commUser) return commUser;
+    if (commUser) {
+      return {
+        ...commUser,
+        isOnline: partner?.isOnline ?? presence?.isOnline ?? commUser.isOnline,
+        lastSeen: partner?.lastSeen ?? presence?.lastSeen ?? commUser.lastSeen,
+      };
+    }
 
     // 4. Direct check in DEMO_FRIENDS
-    if (DEMO_FRIENDS[otherUid]) return DEMO_FRIENDS[otherUid];
+    if (DEMO_FRIENDS[otherUid]) {
+      return {
+        ...DEMO_FRIENDS[otherUid],
+        isOnline: partner?.isOnline ?? presence?.isOnline ?? DEMO_FRIENDS[otherUid].isOnline,
+        lastSeen: partner?.lastSeen ?? presence?.lastSeen ?? DEMO_FRIENDS[otherUid].lastSeen,
+      };
+    }
 
     return {
       uid: otherUid,
@@ -298,6 +368,8 @@ export function ChatPane({
       photoURL: undefined,
       friends: [],
       createdAt: Date.now(),
+      isOnline: partner?.isOnline ?? presence?.isOnline,
+      lastSeen: partner?.lastSeen ?? presence?.lastSeen,
     };
   };
 
@@ -405,8 +477,18 @@ export function ChatPane({
       recipient
     );
 
-    // Replace optimistic placeholder with confirmed message
-    setMessages((prev) => prev.map((m) => (m.id === tempMsg.id ? sent : m)));
+    // Replace optimistic placeholder with confirmed message while preserving any real-time viewed status
+    setMessages((prev) => {
+      const alreadyHasSent = prev.some((m) => m.id === sent.id);
+      if (alreadyHasSent) {
+        return prev.filter((m) => m.id !== tempMsg.id);
+      }
+      return prev.map((m) =>
+        m.id === tempMsg.id
+          ? { ...sent, viewStatus: m.viewStatus === 'viewed' ? 'viewed' : sent.viewStatus }
+          : m
+      );
+    });
 
     // 3. Realistic Demo Simulation for seed friends only
     if (DEMO_FRIENDS[recipient.uid]) {
@@ -639,6 +721,7 @@ export function ChatPane({
                       );
                       if (existing) {
                         setActiveChat(existing);
+                        markChatMessagesAsRead(existing.id, currentUser.uid);
                       } else {
                         const newChat: Chat = {
                           id: canonicalId,
@@ -650,6 +733,7 @@ export function ChatPane({
                           updatedAt: Date.now(),
                         };
                         setActiveChat(newChat);
+                        markChatMessagesAsRead(canonicalId, currentUser.uid);
                       }
                     }}
                     className="flex flex-col items-center gap-1.5 cursor-pointer group flex-shrink-0"
@@ -663,6 +747,12 @@ export function ChatPane({
                         alt={friend.displayName}
                         className="w-13 h-13 rounded-full object-cover border-2 border-white/20 group-hover:border-yellow-400 transition-colors"
                       />
+                      {isUserCurrentlyOnline(presenceMap[friend.uid] || friend) && (
+                        <span
+                          className="absolute top-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-[#0a0a0f] rounded-full shadow-[0_0_8px_rgba(16,185,129,0.7)]"
+                          title="Online"
+                        />
+                      )}
                       {friend.streak && (
                         <div className="absolute -bottom-1 -right-1 bg-amber-500 text-black font-extrabold text-[10px] px-1.5 py-0.2 rounded-full border border-black flex items-center gap-0.5">
                           <Flame className="w-2.5 h-2.5 fill-current" />
@@ -711,7 +801,10 @@ export function ChatPane({
                 return (
                   <div
                     key={chat.id}
-                    onClick={() => setActiveChat(chat)}
+                    onClick={() => {
+                      setActiveChat(chat);
+                      markChatMessagesAsRead(chat.id, currentUser.uid);
+                    }}
                     className="p-4 flex items-center justify-between hover:bg-white/5 transition-colors cursor-pointer active:bg-white/10"
                   >
                     <div className="flex items-center gap-3.5 min-w-0">
@@ -727,6 +820,12 @@ export function ChatPane({
                             {(recipient.displayName || recipient.username || 'U').charAt(0).toUpperCase()}
                           </div>
                         )}
+                        {isUserCurrentlyOnline(presenceMap[otherUid] || recipient) && (
+                          <span
+                            className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-[#121218] rounded-full shadow-[0_0_8px_rgba(16,185,129,0.8)]"
+                            title="Online"
+                          />
+                        )}
                         {recipient.streak && (
                           <div className="absolute -bottom-1 -right-1 bg-amber-500 text-black font-extrabold text-[9px] px-1 py-0.1 rounded-full border border-black flex items-center">
                             🔥{recipient.streak}
@@ -735,9 +834,21 @@ export function ChatPane({
                       </div>
 
                       <div className="min-w-0">
-                        <h3 className="font-bold text-sm text-white truncate">
-                          {recipient.displayName}
-                        </h3>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <h3 className="font-bold text-sm text-white truncate">
+                            {recipient.displayName}
+                          </h3>
+                          {isUserCurrentlyOnline(presenceMap[otherUid] || recipient) ? (
+                            <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1 flex-shrink-0">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                              Online
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-white/40 flex-shrink-0">
+                              {formatLastSeen(presenceMap[otherUid]?.lastSeen ?? recipient.lastSeen, false)}
+                            </span>
+                          )}
+                        </div>
 
                         {otherIsTyping ? (
                           <p className="text-xs text-purple-400 font-semibold animate-pulse flex items-center gap-1 mt-0.5">
@@ -762,7 +873,7 @@ export function ChatPane({
                             lastMsg.viewStatus === 'viewed' ? (
                               <p className="text-xs text-sky-400 font-medium flex items-center gap-1 mt-0.5 truncate">
                                 <CheckCheck className="w-3.5 h-3.5 stroke-[2.5] flex-shrink-0" />
-                                <span>Seen · {formatReceiptTime(lastMsg.viewedAt || lastMsg.createdAt)}</span>
+                                <span>Read · {formatReceiptTime(lastMsg.viewedAt || lastMsg.createdAt)}</span>
                               </p>
                             ) : (
                               <p className="text-xs text-white/50 flex items-center gap-1 mt-0.5 truncate">
@@ -838,6 +949,15 @@ export function ChatPane({
             const recipient = getRecipient(activeChat);
             const otherUid = recipient.uid;
             const otherIsTyping = Boolean(activeChat.typing && activeChat.typing[otherUid]);
+            const isRecipientOnline = isUserCurrentlyOnline(
+              activePartnerProfile?.uid === otherUid
+                ? activePartnerProfile
+                : (presenceMap[otherUid] || recipient)
+            );
+            const lastSeenVal =
+              activePartnerProfile?.uid === otherUid
+                ? activePartnerProfile.lastSeen
+                : presenceMap[otherUid]?.lastSeen ?? recipient.lastSeen;
 
             return (
               <div
@@ -857,27 +977,37 @@ export function ChatPane({
                     <span>Chats</span>
                   </button>
 
-                  {recipient.photoURL ? (
-                    <img
-                      src={recipient.photoURL}
-                      alt={recipient.displayName}
-                      className="w-9 h-9 rounded-full object-cover border border-white/20 flex-shrink-0"
-                    />
-                  ) : (
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-purple-600 via-pink-600 to-amber-500 flex items-center justify-center font-bold text-white text-xs shadow flex-shrink-0 border border-white/20">
-                      {(recipient.displayName || recipient.username || 'U').charAt(0).toUpperCase()}
-                    </div>
-                  )}
+                  <div className="relative flex-shrink-0">
+                    {recipient.photoURL ? (
+                      <img
+                        src={recipient.photoURL}
+                        alt={recipient.displayName}
+                        className="w-9 h-9 rounded-full object-cover border border-white/20 flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-purple-600 via-pink-600 to-amber-500 flex items-center justify-center font-bold text-white text-xs shadow flex-shrink-0 border border-white/20">
+                        {(recipient.displayName || recipient.username || 'U').charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    {isRecipientOnline && (
+                      <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-[#121218] rounded-full shadow-[0_0_6px_rgba(16,185,129,0.8)]" />
+                    )}
+                  </div>
 
                   <div className="min-w-0">
                     <h3 className="font-bold text-sm text-white truncate">{recipient.displayName}</h3>
-                    <p className="text-xs text-white/40 truncate">
+                    <div className="text-xs truncate leading-tight">
                       {otherIsTyping ? (
                         <span className="text-purple-400 font-semibold animate-pulse">Typing...</span>
+                      ) : isRecipientOnline ? (
+                        <span className="text-emerald-400 font-semibold flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+                          <span>Online</span>
+                        </span>
                       ) : (
-                        `@${recipient.username}`
+                        <span className="text-white/50">{formatLastSeen(lastSeenVal, false)}</span>
                       )}
-                    </p>
+                    </div>
                   </div>
                 </div>
 
@@ -1097,10 +1227,10 @@ export function ChatPane({
                               msg.viewStatus === 'viewed' ? (
                                 <span
                                   className="inline-flex items-center gap-0.5 text-sky-300 font-semibold"
-                                  title={`Seen ${msg.viewedAt ? formatChatTime(msg.viewedAt) : ''}`}
+                                  title={`Read ${msg.viewedAt ? formatChatTime(msg.viewedAt) : ''}`}
                                 >
-                                  <CheckCheck className="w-3 h-3 stroke-[2.5]" />
-                                  <span>Seen {formatReceiptTime(msg.viewedAt || msg.createdAt)}</span>
+                                  <CheckCheck className="w-3 h-3 stroke-[2.5] text-sky-400" />
+                                  <span>Read {formatReceiptTime(msg.viewedAt || msg.createdAt)}</span>
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center gap-0.5 text-white/40" title="Delivered">

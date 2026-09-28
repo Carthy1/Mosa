@@ -278,9 +278,31 @@ export function ARCamera({
       const rawWidth = video.videoWidth > 0 ? video.videoWidth : (video.clientWidth || 1280);
       const rawHeight = video.videoHeight > 0 ? video.videoHeight : (video.clientHeight || 720);
 
-      // Downscale snapshot to max 1280px to prevent iOS Safari memory exhaustion
-      let width = rawWidth;
-      let height = rawHeight;
+      // Match the exact viewport visible to the user in the viewfinder container
+      const container = containerRef.current;
+      const cWidth = container ? container.clientWidth : video.clientWidth || 1280;
+      const cHeight = container ? container.clientHeight : video.clientHeight || 720;
+      const containerRatio = cWidth > 0 && cHeight > 0 ? cWidth / cHeight : rawWidth / rawHeight;
+      const videoRatio = rawWidth / rawHeight;
+
+      let srcX = 0;
+      let srcY = 0;
+      let srcWidth = rawWidth;
+      let srcHeight = rawHeight;
+
+      if (containerRatio > videoRatio) {
+        // Container is wider than the raw video stream: top/bottom are clipped in viewfinder
+        srcHeight = rawWidth / containerRatio;
+        srcY = (rawHeight - srcHeight) / 2;
+      } else {
+        // Container is taller than the raw video stream: left/right are clipped in viewfinder
+        srcWidth = rawHeight * containerRatio;
+        srcX = (rawWidth - srcWidth) / 2;
+      }
+
+      // Downscale snapshot to max 1280px to prevent iOS Safari memory exhaustion while keeping 100% viewfinder match
+      let width = Math.round(srcWidth);
+      let height = Math.round(srcHeight);
       const maxDim = 1280;
       if (width > maxDim || height > maxDim) {
         if (width > height) {
@@ -299,13 +321,13 @@ export function ARCamera({
 
       if (!ctx) return;
 
-      // Draw camera video feed if video is playing and ready
+      // Draw camera video feed matching the exact visible viewfinder crop
       if (video.readyState >= 2 && video.videoWidth > 0) {
         if (facingMode === 'user') {
           ctx.translate(width, 0);
           ctx.scale(-1, 1);
         }
-        ctx.drawImage(video, 0, 0, width, height);
+        ctx.drawImage(video, srcX, srcY, srcWidth, srcHeight, 0, 0, width, height);
 
         // Reset transform before overlaying Three.js WebGL canvas
         if (facingMode === 'user') {

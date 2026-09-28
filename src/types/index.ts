@@ -7,6 +7,8 @@ export interface UserProfile {
   friends: string[];
   streak?: number;
   createdAt: number;
+  isOnline?: boolean;
+  lastSeen?: number;
 }
 
 export type SnapMediaType = 'text' | 'image' | 'video';

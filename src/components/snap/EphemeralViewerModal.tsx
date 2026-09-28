@@ -27,6 +27,13 @@ export function EphemeralViewerModal({
   const [justSavedNotification, setJustSavedNotification] = useState(false);
   const hasTriggeredPurge = useRef(false);
 
+  // Immediately notify sender that snap was opened / viewed
+  useEffect(() => {
+    if (!currentUser || currentUser.uid !== message.senderId) {
+      markSnapViewed(chatId, message.id);
+    }
+  }, [chatId, message.id, message.senderId, currentUser]);
+
   useEffect(() => {
     // If infinite duration or already saved, don't rush auto-purge
     if (initialDuration > 3600 || isSaved) return;
@@ -197,21 +204,21 @@ export function EphemeralViewerModal({
         </div>
       )}
 
-      {/* Snap Media Content */}
-      <div className="absolute inset-0 flex items-center justify-center bg-black">
+      {/* Snap Media Content - object-contain preserves exact resolution and aspect without enlargement */}
+      <div className="absolute inset-0 flex items-center justify-center bg-black p-0 overflow-hidden">
         {message.type === 'video' ? (
           <video
             src={message.content}
             autoPlay
             playsInline
             controls={isSaved}
-            className="w-full h-full object-cover"
+            className="max-w-full max-h-full w-auto h-auto object-contain select-none"
           />
         ) : (
           <img
             src={message.content}
             alt="Ephemeral Snap"
-            className="w-full h-full object-cover"
+            className="max-w-full max-h-full w-auto h-auto object-contain select-none"
           />
         )}
       </div>

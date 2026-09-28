@@ -17,7 +17,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { UserProfile, Chat, Story } from '@/types';
 import { mockStore, DEFAULT_USER } from '@/lib/mock/mockStore';
-import { subscribeChats, subscribeStories, saveUserProfile, subscribeUserFriends } from '@/lib/firebase/firestore';
+import { subscribeChats, subscribeStories, saveUserProfile, subscribeUserFriends, setUserOnlineStatus } from '@/lib/firebase/firestore';
 import {
   MessageSquare,
   Camera,
@@ -54,6 +54,46 @@ export function SwipeContainer() {
       saveUserProfile(authUser);
     }
   }, [authUser]);
+
+  // Online Presence & Heartbeat Lifecycle Tracking
+  useEffect(() => {
+    const uid = currentUser?.uid;
+    if (!uid) return;
+
+    // 1. Instantly declare user online on mount
+    setUserOnlineStatus(uid, true);
+
+    // 2. Periodic heartbeat every 30 seconds while window is active
+    const heartbeatTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        setUserOnlineStatus(uid, true);
+      }
+    }, 30000);
+
+    // 3. Update status on tab focus / visibility switch
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        setUserOnlineStatus(uid, true);
+      } else {
+        setUserOnlineStatus(uid, false);
+      }
+    };
+
+    // 4. Update status when closing window / tab
+    const handleUnload = () => {
+      setUserOnlineStatus(uid, false);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('beforeunload', handleUnload);
+
+    return () => {
+      clearInterval(heartbeatTimer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('beforeunload', handleUnload);
+      setUserOnlineStatus(uid, false);
+    };
+  }, [currentUser?.uid]);
 
   useEffect(() => {
     // Load initial user
