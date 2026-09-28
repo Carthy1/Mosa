@@ -39,7 +39,7 @@ export function SnapPreviewModal({
 }: SnapPreviewModalProps) {
   const [caption, setCaption] = useState('');
   const [showCaptionInput, setShowCaptionInput] = useState(false);
-  const [duration, setDuration] = useState<number>(defaultRecipient ? 0 : 10);
+  const [duration, setDuration] = useState<number>(10);
   const [showTimerPicker, setShowTimerPicker] = useState(false);
   const [showSendDrawer, setShowSendDrawer] = useState(Boolean(defaultRecipient));
   const [sendToStory, setSendToStory] = useState(!defaultRecipient);
@@ -115,7 +115,6 @@ export function SnapPreviewModal({
           selectedFriends.map((friendUid) => {
             const chatId = getCanonicalChatId(currentUser.uid, friendUid);
             const targetFriend = friends.find((f) => f.uid === friendUid);
-            const isSavedPermanent = duration === 0;
             return sendMessage(
               chatId,
               {
@@ -124,9 +123,7 @@ export function SnapPreviewModal({
                 type: mediaType,
                 content: finalMediaUrl,
                 duration: duration === 0 ? 999999 : duration,
-                isSaved: isSavedPermanent,
-                savedByName: isSavedPermanent ? (currentUser.displayName || currentUser.username) : undefined,
-                savedBy: isSavedPermanent ? [currentUser.uid] : undefined,
+                isSaved: false,
               },
               targetFriend || friendUid
             );
@@ -151,7 +148,6 @@ export function SnapPreviewModal({
             selectedFriends.map((friendUid) => {
               const chatId = getCanonicalChatId(currentUser.uid, friendUid);
               const targetFriend = friends.find((f) => f.uid === friendUid);
-              const isSavedPermanent = duration === 0;
               return sendMessage(
                 chatId,
                 {
@@ -160,9 +156,7 @@ export function SnapPreviewModal({
                   type: mediaType,
                   content: mediaUrl,
                   duration: duration === 0 ? 999999 : duration,
-                  isSaved: isSavedPermanent,
-                  savedByName: isSavedPermanent ? (currentUser.displayName || currentUser.username) : undefined,
-                  savedBy: isSavedPermanent ? [currentUser.uid] : undefined,
+                  isSaved: false,
                 },
                 targetFriend || friendUid
               );
