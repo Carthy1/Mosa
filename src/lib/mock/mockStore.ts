@@ -584,7 +584,24 @@ class MockDatabase {
   }
 
   markSnapViewed(chatId: string, messageId: string) {
-    const list = this.getMessages(chatId);
+    let targetKey = chatId;
+    let list = this.messages[chatId];
+    if (!list) {
+      const cleanTarget = chatId.replace('chat_', '').replace('user_', '').toLowerCase();
+      for (const key of Object.keys(this.messages)) {
+        const cleanKey = key.replace('chat_', '').replace('user_', '').toLowerCase();
+        if (cleanKey === cleanTarget || chatId.includes(cleanKey) || key.includes(cleanTarget)) {
+          targetKey = key;
+          list = this.messages[key];
+          break;
+        }
+      }
+      if (!list) {
+        list = [...this.getMessages(chatId)];
+        this.messages[targetKey] = list;
+      }
+    }
+
     if (list) {
       const msg = list.find((m) => m.id === messageId);
       if (msg && msg.viewStatus !== 'viewed') {
@@ -592,12 +609,13 @@ class MockDatabase {
         msg.viewedAt = Date.now();
 
         // Update last message status ONLY if this snap was the last message
-        const chat = this.chats.find((c) => c.id === chatId || c.id.includes(chatId.replace('chat_', '')));
+        const chat = this.chats.find((c) => c.id === chatId || c.id === targetKey || c.id.includes(chatId.replace('chat_', '')));
         if (chat && chat.lastMessage && (chat.lastMessage.id === messageId || (!chat.lastMessage.id && chat.lastMessage.createdAt === msg.createdAt))) {
           chat.lastMessage.viewStatus = 'viewed';
           chat.lastMessage.viewedAt = msg.viewedAt;
         }
         this.save();
+        this.notify();
       }
     }
   }
@@ -607,7 +625,24 @@ class MockDatabase {
   }
 
   markChatMessagesAsRead(chatId: string, readerUid: string) {
-    const list = this.getMessages(chatId);
+    let targetKey = chatId;
+    let list = this.messages[chatId];
+    if (!list) {
+      const cleanTarget = chatId.replace('chat_', '').replace('user_', '').toLowerCase();
+      for (const key of Object.keys(this.messages)) {
+        const cleanKey = key.replace('chat_', '').replace('user_', '').toLowerCase();
+        if (cleanKey === cleanTarget || chatId.includes(cleanKey) || key.includes(cleanTarget)) {
+          targetKey = key;
+          list = this.messages[key];
+          break;
+        }
+      }
+      if (!list) {
+        list = [...this.getMessages(chatId)];
+        this.messages[targetKey] = list;
+      }
+    }
+
     let changed = false;
     if (list) {
       list.forEach((msg) => {
@@ -618,18 +653,36 @@ class MockDatabase {
         }
       });
       if (changed) {
-        const chat = this.chats.find((c) => c.id === chatId || c.id.includes(chatId.replace('chat_', '')));
+        const chat = this.chats.find((c) => c.id === chatId || c.id === targetKey || c.id.includes(chatId.replace('chat_', '')));
         if (chat && chat.lastMessage && chat.lastMessage.senderId !== readerUid) {
           chat.lastMessage.viewStatus = 'viewed';
           chat.lastMessage.viewedAt = Date.now();
         }
         this.save();
+        this.notify();
       }
     }
   }
 
   saveSnap(chatId: string, messageId: string, savedByUid: string, savedByName: string) {
-    const list = this.getMessages(chatId);
+    let targetKey = chatId;
+    let list = this.messages[chatId];
+    if (!list) {
+      const cleanTarget = chatId.replace('chat_', '').replace('user_', '').toLowerCase();
+      for (const key of Object.keys(this.messages)) {
+        const cleanKey = key.replace('chat_', '').replace('user_', '').toLowerCase();
+        if (cleanKey === cleanTarget || chatId.includes(cleanKey) || key.includes(cleanTarget)) {
+          targetKey = key;
+          list = this.messages[key];
+          break;
+        }
+      }
+      if (!list) {
+        list = [...this.getMessages(chatId)];
+        this.messages[targetKey] = list;
+      }
+    }
+
     if (list) {
       const msg = list.find((m) => m.id === messageId);
       if (msg) {
@@ -638,12 +691,13 @@ class MockDatabase {
         msg.savedByName = savedByName;
         msg.savedAt = Date.now();
 
-        const chat = this.chats.find((c) => c.id === chatId || c.id.includes(chatId.replace('chat_', '')));
+        const chat = this.chats.find((c) => c.id === chatId || c.id === targetKey || c.id.includes(chatId.replace('chat_', '')));
         if (chat && chat.lastMessage && (chat.lastMessage.id === messageId || (!chat.lastMessage.id && chat.lastMessage.content === msg.content))) {
           chat.lastMessage.isSaved = true;
           chat.lastMessage.savedByName = savedByName;
         }
         this.save();
+        this.notify();
       }
     }
   }

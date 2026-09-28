@@ -18,6 +18,7 @@ import {
   isUserCurrentlyOnline,
   subscribeUserProfile,
   subscribeUsersPresence,
+  saveSnap,
   toTimestampMillis,
 } from '@/lib/firebase/firestore';
 import { DEMO_FRIENDS, mockStore } from '@/lib/mock/mockStore';
@@ -51,6 +52,7 @@ import {
   Image as ImageIcon,
   Bell,
   BellRing,
+  PlaySquare,
 } from 'lucide-react';
 
 interface ChatPaneProps {
@@ -212,6 +214,32 @@ export function ChatPane({
       }
     }
     e.target.value = '';
+  };
+
+  const handleToggleSaveSnap = async (msg: Message) => {
+    if (!activeChat) return;
+    const isAlreadySaved = Boolean(msg.isSaved);
+    const newSaved = !isAlreadySaved;
+
+    // Optimistic instant UI update
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msg.id
+          ? {
+              ...m,
+              isSaved: newSaved,
+              savedByName: newSaved ? (currentUser.displayName || currentUser.username) : undefined,
+              savedBy: newSaved
+                ? Array.from(new Set([...(m.savedBy || []), currentUser.uid]))
+                : (m.savedBy || []).filter((uid) => uid !== currentUser.uid),
+            }
+          : m
+      )
+    );
+
+    if (newSaved) {
+      await saveSnap(activeChat.id, msg.id, currentUser.uid, currentUser.displayName || currentUser.username);
+    }
   };
 
   const handleStartReply = (msg: Message) => {
@@ -1064,99 +1092,198 @@ export function ChatPane({
                     }`}
                   >
                     {isMediaSnap ? (
-                      /* Ephemeral Snap Message Bubble */
-                      <div className="relative flex items-center gap-2 group/bubble">
-                        {/* Quick Reply Button on Hover / Mobile Touch */}
-                        <button
-                          type="button"
-                          onClick={() => handleStartReply(msg)}
-                          className={`opacity-60 sm:opacity-0 sm:group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100 transition-all p-1.5 rounded-full bg-white/10 hover:bg-white/20 active:scale-90 text-white/80 hover:text-white cursor-pointer shadow-sm ${
-                            isMe ? 'order-first' : 'order-last'
-                          }`}
-                          title="Reply to snap"
-                          aria-label="Reply to snap"
-                        >
-                          <CornerUpLeft className="w-3.5 h-3.5" />
-                        </button>
+                      msg.isSaved ? (
+                        /* Saved Media Snap in Chat - Displays actual photo / video */
+                        <div className="relative flex items-center gap-2 group/bubble max-w-[85%] sm:max-w-[70%]">
+                          {/* Quick Reply Button on Hover / Mobile Touch */}
+                          <button
+                            type="button"
+                            onClick={() => handleStartReply(msg)}
+                            className={`opacity-60 sm:opacity-0 sm:group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100 transition-all p-1.5 rounded-full bg-white/10 hover:bg-white/20 active:scale-90 text-white/80 hover:text-white cursor-pointer shadow-sm ${
+                              isMe ? 'order-first' : 'order-last'
+                            }`}
+                            title="Reply to photo"
+                            aria-label="Reply to photo"
+                          >
+                            <CornerUpLeft className="w-3.5 h-3.5" />
+                          </button>
 
-                        <div
-                          onClick={() => {
-                            if (msg.viewStatus !== 'viewed' || msg.isSaved) {
-                              setViewingSnap({
-                                message: msg,
-                                senderName: msg.senderName || (isMe ? 'Me' : recipientDisplayName),
-                              });
-                            }
-                          }}
-                          className={`p-3.5 rounded-2xl flex items-center gap-3 transition-all ${
-                            msg.isSaved
-                              ? 'bg-gradient-to-r from-amber-950/40 via-yellow-950/20 to-amber-900/40 border border-amber-400/40 text-amber-100 cursor-pointer shadow-md shadow-amber-500/10 hover:scale-102 active:scale-98'
-                              : msg.viewStatus === 'viewed'
-                              ? 'bg-white/5 border border-white/10 text-white/40 cursor-default'
-                              : isMe
-                              ? 'bg-gradient-to-r from-purple-900/50 to-indigo-900/50 border border-purple-500/30 text-white cursor-default'
-                              : 'bg-gradient-to-r from-red-600 to-rose-600 text-white cursor-pointer hover:scale-102 shadow-lg shadow-red-600/30 active:scale-98'
-                          }`}
-                        >
                           <div
-                            className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                              msg.isSaved
-                                ? 'bg-amber-400/20 text-amber-300'
-                                : msg.viewStatus === 'viewed'
-                                ? 'bg-white/5'
-                                : 'bg-white/20'
+                            className={`rounded-2xl overflow-hidden shadow-2xl border transition-all ${
+                              isMe
+                                ? 'bg-gradient-to-b from-purple-950/60 to-purple-900/40 border-purple-500/30'
+                                : 'bg-[#181824] border-white/15'
                             }`}
                           >
-                            {msg.isSaved ? (
-                              <Bookmark className="w-5 h-5 fill-amber-400 text-amber-400" />
-                            ) : msg.viewStatus === 'viewed' ? (
-                              <Square className="w-4 h-4 stroke-[2.5]" />
-                            ) : (
-                              <Flame className="w-5 h-5 fill-current animate-pulse text-yellow-300" />
+                            {/* Saved by header badge */}
+                            <div className="px-3 py-1.5 bg-black/50 backdrop-blur-md flex items-center justify-between gap-2 border-b border-white/10">
+                              <div
+                                onClick={() => handleToggleSaveSnap(msg)}
+                                className="flex items-center gap-1.5 text-amber-300 font-bold text-[11px] truncate cursor-pointer hover:opacity-80"
+                                title="Click to toggle save in chat"
+                              >
+                                <Bookmark className="w-3.5 h-3.5 fill-amber-400 text-amber-400 flex-shrink-0" />
+                                <span className="truncate">
+                                  Saved by {msg.savedByName || (isMe ? 'You' : recipientDisplayName)}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDownloadMedia(msg.content, msg.type);
+                                }}
+                                className="p-1 rounded-md hover:bg-white/15 text-white/70 hover:text-white transition-colors cursor-pointer flex-shrink-0"
+                                title="Download media"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            {/* Actual Media Viewport */}
+                            <div
+                              onClick={() => {
+                                setViewingSnap({
+                                  message: msg,
+                                  senderName: msg.senderName || (isMe ? 'Me' : recipientDisplayName),
+                                });
+                              }}
+                              className="relative cursor-pointer group/img overflow-hidden bg-black/90 flex items-center justify-center min-w-[200px] max-w-[280px] sm:max-w-[340px]"
+                            >
+                              {msg.type === 'video' ? (
+                                <div className="relative w-full max-h-[380px] overflow-hidden flex items-center justify-center bg-black aspect-[4/5] sm:aspect-[9/16]">
+                                  <video
+                                    src={msg.content}
+                                    playsInline
+                                    muted
+                                    className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300 select-none"
+                                  />
+                                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover/img:bg-black/10 transition-colors">
+                                    <div className="w-11 h-11 rounded-full bg-white/25 backdrop-blur-md border border-white/40 flex items-center justify-center text-white shadow-xl group-hover/img:scale-110 transition-transform">
+                                      <PlaySquare className="w-5 h-5 fill-white" />
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="relative w-full max-h-[380px] overflow-hidden flex items-center justify-center bg-black">
+                                  <img
+                                    src={msg.content}
+                                    alt="Saved snap photo"
+                                    className="max-h-[380px] max-w-full w-auto h-auto object-contain block mx-auto group-hover/img:scale-[1.02] transition-transform duration-300 select-none"
+                                    loading="lazy"
+                                    onError={(e) => {
+                                      console.warn('Saved image failed to load:', msg.content?.slice(0, 50));
+                                    }}
+                                  />
+                                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity flex items-end p-2.5 pointer-events-none">
+                                    <span className="text-[10px] text-white/90 font-medium">Click to view full screen</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Footer with timestamp and receipt status */}
+                            <div className="px-3 py-1.5 bg-black/50 backdrop-blur-md flex items-center justify-between gap-1.5 font-mono text-[9px]">
+                              <span className="text-white/50">{formatChatTime(msg.createdAt)}</span>
+                              {isMe && (
+                                msg.viewStatus === 'viewed' ? (
+                                  <span className="inline-flex items-center gap-0.5 text-sky-300 font-semibold" title="Read">
+                                    <CheckCheck className="w-3 h-3 stroke-[2.5] text-sky-400" />
+                                    <span>Read</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-0.5 text-white/40" title="Delivered">
+                                    <CheckCheck className="w-3 h-3 opacity-60" />
+                                    <span>Delivered</span>
+                                  </span>
+                                )
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        /* Ephemeral Unopened or Expired Snap Bubble */
+                        <div className="relative flex items-center gap-2 group/bubble">
+                          {/* Quick Reply Button on Hover / Mobile Touch */}
+                          <button
+                            type="button"
+                            onClick={() => handleStartReply(msg)}
+                            className={`opacity-60 sm:opacity-0 sm:group-hover/bubble:opacity-100 group-focus-within/bubble:opacity-100 transition-all p-1.5 rounded-full bg-white/10 hover:bg-white/20 active:scale-90 text-white/80 hover:text-white cursor-pointer shadow-sm ${
+                              isMe ? 'order-first' : 'order-last'
+                            }`}
+                            title="Reply to snap"
+                            aria-label="Reply to snap"
+                          >
+                            <CornerUpLeft className="w-3.5 h-3.5" />
+                          </button>
+
+                          <div
+                            onClick={() => {
+                              if (msg.viewStatus !== 'viewed') {
+                                setViewingSnap({
+                                  message: msg,
+                                  senderName: msg.senderName || (isMe ? 'Me' : recipientDisplayName),
+                                });
+                              }
+                            }}
+                            className={`p-3.5 rounded-2xl flex items-center gap-3 transition-all ${
+                              msg.viewStatus === 'viewed'
+                                ? 'bg-white/5 border border-white/10 text-white/40 cursor-default'
+                                : isMe
+                                ? 'bg-gradient-to-r from-purple-900/50 to-indigo-900/50 border border-purple-500/30 text-white cursor-default'
+                                : 'bg-gradient-to-r from-red-600 to-rose-600 text-white cursor-pointer hover:scale-102 shadow-lg shadow-red-600/30 active:scale-98'
+                            }`}
+                          >
+                            <div
+                              className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                                msg.viewStatus === 'viewed' ? 'bg-white/5' : 'bg-white/20'
+                              }`}
+                            >
+                              {msg.viewStatus === 'viewed' ? (
+                                <Square className="w-4 h-4 stroke-[2.5]" />
+                              ) : (
+                                <Flame className="w-5 h-5 fill-current animate-pulse text-yellow-300" />
+                              )}
+                            </div>
+
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold truncate">
+                                {msg.viewStatus === 'viewed'
+                                  ? isMe
+                                    ? 'Opened Snap'
+                                    : 'Opened Snap (Expired)'
+                                  : isMe
+                                  ? `Delivered ${msg.type.toUpperCase()} Snap (${msg.duration || 10}s)`
+                                  : `New ${msg.type.toUpperCase()} Snap (${msg.duration || 10}s)`}
+                              </p>
+                              <p className="text-[10px] opacity-80 truncate">
+                                {msg.viewStatus === 'viewed'
+                                  ? isMe
+                                    ? `Opened by ${recipientDisplayName} · ${formatReceiptTime(msg.viewedAt || msg.createdAt)}`
+                                    : 'Purged from storage'
+                                  : isMe
+                                  ? `Waiting for ${recipientDisplayName} to open`
+                                  : 'Tap to view before it vanishes'}
+                              </p>
+                            </div>
+
+                            {/* Save to Chat button on snap bubble before or after opening */}
+                            {msg.content && (
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  await handleToggleSaveSnap(msg);
+                                }}
+                                className="ml-2 p-1.5 rounded-lg bg-white/10 hover:bg-amber-400/25 text-white/70 hover:text-amber-300 transition-colors cursor-pointer"
+                                title="Save snap in chat"
+                              >
+                                <Bookmark className="w-3.5 h-3.5" />
+                              </button>
                             )}
                           </div>
-
-                          <div className="min-w-0">
-                            <p className="text-xs font-bold truncate">
-                              {msg.isSaved
-                                ? `Saved ${msg.type.toUpperCase()} Snap`
-                                : msg.viewStatus === 'viewed'
-                                ? isMe
-                                  ? 'Opened Snap'
-                                  : 'Opened Snap (Expired)'
-                                : isMe
-                                ? `Delivered ${msg.type.toUpperCase()} Snap (${msg.duration || 10}s)`
-                                : `New ${msg.type.toUpperCase()} Snap (${msg.duration || 10}s)`}
-                            </p>
-                            <p className="text-[10px] opacity-80 truncate">
-                              {msg.isSaved
-                                ? `Saved in chat by ${msg.savedByName || (isMe ? 'You' : 'Friend')} • Tap to replay`
-                                : msg.viewStatus === 'viewed'
-                                ? isMe
-                                  ? `Opened by ${recipientDisplayName} · ${formatReceiptTime(msg.viewedAt || msg.createdAt)}`
-                                  : 'Purged from storage'
-                                : isMe
-                                ? `Waiting for ${recipientDisplayName} to open`
-                                : 'Tap to view before it vanishes'}
-                            </p>
-                          </div>
-
-                          {/* Quick Download icon if snap is saved */}
-                          {msg.isSaved && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDownloadMedia(msg.content, msg.type);
-                              }}
-                              className="ml-auto p-1.5 rounded-lg bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 transition-colors"
-                              title="Download snap file"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                            </button>
-                          )}
                         </div>
-                      </div>
+                      )
                     ) : (
                       /* Regular Text Message Bubble */
                       <div className="relative flex items-center gap-2 group/bubble max-w-[85%] sm:max-w-[75%]">
@@ -1347,6 +1474,20 @@ export function ChatPane({
           senderName={viewingSnap.senderName}
           currentUser={currentUser}
           onClose={() => setViewingSnap(null)}
+          onSnapSaved={(msgId) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === msgId
+                  ? {
+                      ...m,
+                      isSaved: true,
+                      savedByName: currentUser.displayName || currentUser.username,
+                      savedBy: Array.from(new Set([...(m.savedBy || []), currentUser.uid])),
+                    }
+                  : m
+              )
+            );
+          }}
         />
       )}
 

@@ -831,6 +831,12 @@ export function subscribeMessages(
   let unsubFirestore: (() => void) | null = null;
   if (isFirebaseConfigured && db) {
     try {
+      // Send immediate local cached messages to avoid blank flash
+      const localCached = mockStore.getMessages(chatId);
+      if (localCached && localCached.length > 0) {
+        callback(localCached);
+      }
+
       const messagesRef = collection(db, 'chats', chatId, 'messages');
       const q = query(messagesRef);
 
@@ -853,6 +859,7 @@ export function subscribeMessages(
                 replyTo: data.replyTo || undefined,
                 isSaved: Boolean(data.isSaved),
                 savedByName: data.savedByName,
+                savedBy: data.savedBy,
               };
             })
             .sort((a, b) => a.createdAt - b.createdAt);
@@ -861,15 +868,19 @@ export function subscribeMessages(
         },
         (err) => {
           console.warn('Firestore messages notice:', err?.message || err);
-          callback([]);
+          callback(mockStore.getMessages(chatId));
         }
       );
     } catch (err) {
       console.warn('Firestore messages setup error:', err);
-      callback([]);
+      callback(mockStore.getMessages(chatId));
     }
   } else {
-    callback([]);
+    callback(mockStore.getMessages(chatId));
+    const unsubMock = mockStore.subscribe(() => {
+      callback(mockStore.getMessages(chatId));
+    });
+    return unsubMock;
   }
 
   return () => {
@@ -893,6 +904,9 @@ export async function sendMessage(
     content: string;
     duration?: number;
     replyTo?: import('@/types').ReplyTo;
+    isSaved?: boolean;
+    savedBy?: string[];
+    savedByName?: string;
   },
   recipient?: UserProfile | string
 ): Promise<Message> {
@@ -906,6 +920,14 @@ export async function sendMessage(
     duration: message.duration || 10,
     createdAt: now,
     ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+    ...(message.isSaved
+      ? {
+          isSaved: true,
+          savedBy: message.savedBy || [message.senderId],
+          savedByName: message.savedByName || message.senderName || '',
+          savedAt: now,
+        }
+      : {}),
   };
 
   // 1. Immediately store locally and notify subscribers
@@ -938,6 +960,8 @@ export async function sendMessage(
           isReply: Boolean(message.replyTo),
           replyToSenderId: message.replyTo?.senderId || null,
           replyToSenderName: message.replyTo?.senderName || null,
+          isSaved: Boolean(message.isSaved),
+          savedByName: message.savedByName || message.senderName || '',
         },
       };
 
@@ -1142,12 +1166,16 @@ export async function saveSnap(
   if (isFirebaseConfigured && db) {
     try {
       const msgRef = doc(db, 'chats', chatId, 'messages', messageId);
-      await updateDoc(msgRef, {
-        isSaved: true,
-        savedBy: arrayUnion(savedByUid),
-        savedByName,
-        savedAt: serverTimestamp(),
-      });
+      await setDoc(
+        msgRef,
+        {
+          isSaved: true,
+          savedBy: arrayUnion(savedByUid),
+          savedByName,
+          savedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       const chatRef = doc(db, 'chats', chatId);
       const chatSnap = await getDoc(chatRef);

@@ -11,6 +11,7 @@ interface EphemeralViewerModalProps {
   senderName: string;
   currentUser?: UserProfile;
   onClose: () => void;
+  onSnapSaved?: (messageId: string) => void;
 }
 
 export function EphemeralViewerModal({
@@ -19,6 +20,7 @@ export function EphemeralViewerModal({
   senderName,
   currentUser,
   onClose,
+  onSnapSaved,
 }: EphemeralViewerModalProps) {
   const initialDuration = message.duration || 10;
   const [timeLeft, setTimeLeft] = useState(initialDuration);
@@ -66,6 +68,9 @@ export function EphemeralViewerModal({
     setIsSaved(true);
     setJustSavedNotification(true);
     setTimeout(() => setJustSavedNotification(false), 2500);
+
+    // Immediately trigger parent chat state update so photo appears in chat
+    onSnapSaved?.(message.id);
 
     // 1. Download directly to device (using blob fetch to support cross-origin media)
     try {
