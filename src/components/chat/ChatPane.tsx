@@ -21,6 +21,12 @@ import { EphemeralViewerModal } from '../snap/EphemeralViewerModal';
 import { SnapPreviewModal } from '../camera/SnapPreviewModal';
 import { compressImage } from '@/lib/firebase/storage';
 import {
+  getNotificationPermission,
+  requestNotificationPermission,
+  playNotificationSound,
+  triggerHaptic,
+} from '@/lib/notifications';
+import {
   MessageSquare,
   Search,
   UserPlus,
@@ -39,6 +45,8 @@ import {
   Download,
   Check,
   Image as ImageIcon,
+  Bell,
+  BellRing,
 } from 'lucide-react';
 
 interface ChatPaneProps {
@@ -46,7 +54,9 @@ interface ChatPaneProps {
   friends: UserProfile[];
   onOpenCamera: (targetUser?: UserProfile) => void;
   onOpenAuth?: () => void;
-  onActiveChatChange?: (isActive: boolean) => void;
+  onActiveChatChange?: (isActive: boolean, activeChatId?: string | null) => void;
+  targetChatIdToOpen?: string | null;
+  onTargetChatOpened?: () => void;
 }
 
 export function ChatPane({
@@ -55,6 +65,8 @@ export function ChatPane({
   onOpenCamera,
   onOpenAuth,
   onActiveChatChange,
+  targetChatIdToOpen,
+  onTargetChatOpened,
 }: ChatPaneProps) {
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeChat, setActiveChat] = useState<Chat | null>(null);
@@ -70,6 +82,42 @@ export function ChatPane({
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [chatMediaToPreview, setChatMediaToPreview] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>('default');
+  const [showNotifBanner, setShowNotifBanner] = useState(true);
+  const [notifFeedback, setNotifFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    setNotifPermission(getNotificationPermission());
+  }, []);
+
+  const handleEnableNotifications = async () => {
+    const perm = await requestNotificationPermission();
+    setNotifPermission(perm);
+    if (perm === 'granted') {
+      setNotifFeedback('Notifications enabled! Chime alert active.');
+      setTimeout(() => setNotifFeedback(null), 3500);
+    }
+  };
+
+  const handleTestNotification = () => {
+    playNotificationSound();
+    triggerHaptic();
+    setNotifFeedback('Notification sound chime played!');
+    setTimeout(() => setNotifFeedback(null), 2500);
+  };
+
+  // Open chat targeted from notification tap
+  useEffect(() => {
+    if (!targetChatIdToOpen) return;
+    const found = chats.find(
+      (c) => c.id === targetChatIdToOpen || c.participants.includes(targetChatIdToOpen)
+    );
+    if (found) {
+      setActiveChat(found);
+      onTargetChatOpened?.();
+    }
+  }, [targetChatIdToOpen, chats, onTargetChatOpened]);
 
   useEffect(() => {
     if (!showAddFriend) return;
@@ -149,9 +197,9 @@ export function ChatPane({
     }
   };
 
-  // Notify parent container when inside a conversation
+  // Notify parent container when inside a conversation with activeChat id
   useEffect(() => {
-    onActiveChatChange?.(Boolean(activeChat));
+    onActiveChatChange?.(Boolean(activeChat), activeChat?.id || null);
   }, [activeChat, onActiveChatChange]);
 
   // Global Escape key listener to leave chat or close modal immediately
@@ -465,6 +513,36 @@ export function ChatPane({
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Notification Control & Audio Chime Test */}
+              <button
+                type="button"
+                onClick={
+                  notifPermission === 'granted'
+                    ? handleTestNotification
+                    : handleEnableNotifications
+                }
+                className={`w-10 h-10 rounded-full border flex items-center justify-center transition-all cursor-pointer relative ${
+                  notifPermission === 'granted'
+                    ? 'bg-yellow-400/15 text-yellow-300 border-yellow-400/30 hover:bg-yellow-400/25'
+                    : 'bg-white/5 hover:bg-white/10 border-white/10 text-white/70 hover:text-white'
+                }`}
+                title={
+                  notifPermission === 'granted'
+                    ? 'Notifications active (tap to test chime & haptics)'
+                    : 'Turn on message notifications'
+                }
+                aria-label="Notification settings"
+              >
+                {notifPermission === 'granted' ? (
+                  <BellRing className="w-4 h-4 text-yellow-300" />
+                ) : (
+                  <Bell className="w-4 h-4 text-white/70" />
+                )}
+                {notifPermission === 'granted' && (
+                  <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-400 border border-black" />
+                )}
+              </button>
+
               <button
                 onClick={() => setShowAddFriend(true)}
                 className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-white/80 hover:text-white transition-colors cursor-pointer"
@@ -486,6 +564,46 @@ export function ChatPane({
               </button>
             </div>
           </div>
+
+          {/* Notification Permission Prompt Banner (for users who haven't granted permission yet) */}
+          {notifPermission === 'default' && showNotifBanner && (
+            <div className="mx-4 mt-3 p-3.5 rounded-2xl bg-gradient-to-r from-purple-950/70 via-indigo-950/60 to-purple-900/60 border border-purple-500/30 shadow-xl flex items-center justify-between gap-3 animate-in fade-in duration-300">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-full bg-purple-500/20 text-purple-300 flex items-center justify-center flex-shrink-0 border border-purple-500/30">
+                  <Bell className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white">Get Instant Notifications</p>
+                  <p className="text-[11px] text-white/60">Get instant sound & alerts when friends snap or chat</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={handleEnableNotifications}
+                  className="px-3.5 py-1.5 bg-yellow-400 hover:bg-yellow-300 text-black font-bold text-xs rounded-xl shadow active:scale-95 transition-all cursor-pointer"
+                >
+                  Turn On
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowNotifBanner(false)}
+                  className="w-7 h-7 rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                  title="Dismiss banner"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* User Feedback Toast for Chime / Settings */}
+          {notifFeedback && (
+            <div className="mx-4 mt-2 px-3.5 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 text-xs font-semibold flex items-center gap-2 animate-in fade-in duration-200">
+              <Check className="w-4 h-4 text-emerald-400" />
+              <span>{notifFeedback}</span>
+            </div>
+          )}
 
           {/* Quick Start Snapping Carousel */}
           <div className="p-4 border-b border-white/5 bg-gradient-to-r from-purple-950/20 to-transparent">
